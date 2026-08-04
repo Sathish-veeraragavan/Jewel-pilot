@@ -363,7 +363,7 @@ export async function generateAutoSchedules(
       const results = await Promise.all(updatePromises);
       const firstErr = results.find(r => r.error);
       if (firstErr) {
-        throw new Error(`Failed to update existing schedules: ${firstErr.error.message}`);
+        throw new Error(`Failed to update existing schedules: ${firstErr.error?.message || "Unknown error"}`);
       }
     }
 
