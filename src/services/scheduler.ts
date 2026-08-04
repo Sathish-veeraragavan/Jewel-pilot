@@ -50,7 +50,7 @@ export async function generateAutoSchedules(
   // 2. Fetch available videos, templates, occasions, and music tracks
   const [{ data: videos }, { data: templates }, { data: occasions }, { data: musicTracks }] = await Promise.all([
     supabase.from("videos").select("id, title, usage_count, cloudflare_url, category"),
-    supabase.from("templates").select("id, name, template_type, version, placeholder_count"),
+    supabase.from("templates").select("id, name, template_type, version, placeholder_count").eq("status", "active"),
     supabase.from("occasions").select("id, name, start_date, end_date"),
     supabase.from("music_tracks").select("id, title").eq("is_active", true),
   ]);

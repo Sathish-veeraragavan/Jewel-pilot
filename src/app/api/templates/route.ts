@@ -158,20 +158,23 @@ export async function PUT(request: Request) {
       if (error) throw error;
       return NextResponse.json(data);
     } else {
+      const updatePayload: any = {};
+      if (name !== undefined) updatePayload.name = name;
+      if (bg_image_url !== undefined) updatePayload.bg_image_url = bg_image_url || "/api/media/videos/NC-0001.mp4";
+      if (outro_url !== undefined) updatePayload.outro_url = outro_url || "/api/media/outro/SHOP-10409_outro.mp4";
+      if (preview_url !== undefined) updatePayload.preview_url = preview_url || null;
+      if (config !== undefined) {
+        updatePayload.config = config;
+        updatePayload.placeholder_count = calculatedCount;
+      }
+      if (template_type !== undefined) updatePayload.template_type = template_type || "luxury";
+      if (version !== undefined) updatePayload.version = version || "1.0.0";
+      if (status !== undefined) updatePayload.status = status || "active";
+      if (occasion_id !== undefined) updatePayload.occasion_id = occasion_id || null;
+
       const { data, error } = await supabaseAdmin
         .from("templates")
-        .update({
-          name,
-          bg_image_url: defaultBg,
-          outro_url: defaultOutro,
-          preview_url: preview_url || null,
-          config,
-          template_type: template_type || "luxury",
-          version: version || "1.0.0",
-          status: status || "active",
-          placeholder_count: calculatedCount,
-          occasion_id: occasion_id || null
-        })
+        .update(updatePayload)
         .eq("id", id)
         .select()
         .single();
