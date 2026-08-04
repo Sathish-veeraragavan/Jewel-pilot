@@ -144,15 +144,18 @@ export async function GET(request: Request) {
 
     let todayVideo = null;
     if (schedule) {
-      let { data: renderJob } = await supabaseAdmin
+      // 1. Fetch latest render job matching the CURRENT active schedule
+      let { data: currentScheduleJob } = await supabaseAdmin
         .from("render_jobs")
-        .select("id, status, priority, rendered_video_url")
+        .select("id, status, priority, rendered_video_url, videos:video_library_id(title)")
         .eq("shop_id", shopId)
         .eq("template_id", schedule.template_id)
         .eq("video_library_id", schedule.video_id)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
+
+      let renderJob: any = currentScheduleJob;
 
       if (!renderJob && shop.pricing_mode !== "custom_manual") {
         // Automatically create a High priority render job for auto-priced shops
@@ -192,8 +195,10 @@ export async function GET(request: Request) {
             id: newJob.id,
             status: "Pending",
             priority: "High",
-            rendered_video_url: null
+            rendered_video_url: null,
+            videos: { title: (schedule.videos as any)?.title || "Daily Jewellery Reel" }
           };
+          currentScheduleJob = renderJob;
         }
       } else if (renderJob?.status === "Pending" && renderJob?.priority !== "High" && renderJob?.priority !== "Critical") {
         // Upgrade existing pending job priority to High because the user logged in
@@ -216,12 +221,41 @@ export async function GET(request: Request) {
           }]);
       }
 
+      // 3. Prioritize displaying a completed render job if one exists for today
+      // This ensures that if the current job is pending, processing, or cancelled,
+      // but a previous version of today's video was successfully rendered, the user can still download/view it.
+      let displayJob = renderJob;
+      const startOfDay = `${schedule.scheduled_date}T00:00:00.000Z`;
+
+      const { data: completedTodayJobs } = await supabaseAdmin
+        .from("render_jobs")
+        .select("id, status, priority, rendered_video_url, template_id, video_library_id, videos:video_library_id(title)")
+        .eq("shop_id", shopId)
+        .eq("status", "Completed")
+        .gte("created_at", startOfDay)
+        .order("created_at", { ascending: false });
+
+      if (completedTodayJobs && completedTodayJobs.length > 0) {
+        // First priority: A completed job that matches the CURRENT schedule
+        const currentMatch = completedTodayJobs.find(
+          j => j.template_id === schedule.template_id && j.video_library_id === schedule.video_id
+        );
+        if (currentMatch) {
+          displayJob = currentMatch;
+        } else {
+          // Second priority: The latest completed job of any video/template for today (fallback)
+          if (!renderJob || renderJob.status !== "Completed") {
+            displayJob = completedTodayJobs[0];
+          }
+        }
+      }
+
       todayVideo = {
         id: schedule.id,
         scheduleId: schedule.id,
-        videoTitle: (schedule.videos as any)?.title || "Daily Jewellery Reel",
-        renderStatus: renderJob?.status === "Completed" ? "completed" : (renderJob?.status === "Processing" ? "processing" : "pending"),
-        videoUrl: renderJob?.rendered_video_url || null,
+        videoTitle: (displayJob?.videos as any)?.title || (schedule.videos as any)?.title || "Daily Jewellery Reel",
+        renderStatus: displayJob?.status === "Completed" ? "completed" : (displayJob?.status === "Processing" ? "processing" : "pending"),
+        videoUrl: displayJob?.rendered_video_url || null,
         downloadStatus: (schedule as any)?.download_status || "pending"
       };
     }
