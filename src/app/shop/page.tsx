@@ -37,7 +37,7 @@ export default function ShopPage() {
     }
 
     try {
-      const absoluteUrl = window.location.origin + videoUrl + "?download=true";
+      const absoluteUrl = videoUrl.startsWith("http") ? videoUrl : (window.location.origin + videoUrl);
       const nav = navigator as any;
       if (nav.share) {
         await nav.share({
@@ -289,7 +289,7 @@ export default function ShopPage() {
             {!isExpired && shopDetails.todayVideo && shopDetails.todayVideo.videoUrl && (
               <div className="mt-4 flex flex-col sm:flex-row gap-3 justify-center w-full max-w-[340px] sm:max-w-sm mx-auto">
                 <a 
-                  href={`${shopDetails.todayVideo.videoUrl}?download=true`}
+                  href={`/api/media/download-video?url=${encodeURIComponent(shopDetails.todayVideo.videoUrl)}&filename=${shopDetails.shopCode}_Daily_Rates_Reel.mp4`}
                   download={`${shopDetails.shopCode}_Daily_Rates_Reel.mp4`}
                   onClick={() => {
                     // Log download to database
