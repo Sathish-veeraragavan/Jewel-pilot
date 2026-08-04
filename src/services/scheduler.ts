@@ -306,23 +306,76 @@ export async function generateAutoSchedules(
     }
   }
 
-  // Insert records into schedules table (purging old schedule slots for target dates first)
+  // Save or update records in schedules table (preventing duplicate key / restrict violations)
   if (newScheduleRecords.length > 0) {
     const targetDates = Array.from(new Set(newScheduleRecords.map(r => r.scheduled_date)));
     const shopIds = Array.from(new Set(newScheduleRecords.map(r => r.shop_id)));
 
-    await supabase
+    // Fetch existing schedules for these shops & dates
+    const { data: existingTargetSchedules } = await supabase
       .from("schedules")
-      .delete()
+      .select("id, shop_id, scheduled_date")
       .in("shop_id", shopIds)
       .in("scheduled_date", targetDates);
 
-    const { error: insertErr } = await supabase
-      .from("schedules")
-      .insert(newScheduleRecords);
+    const existingMap = new Map<string, string>(); // Key: "shop_id_scheduled_date", Value: id
+    (existingTargetSchedules || []).forEach(s => {
+      existingMap.set(`${s.shop_id}_${s.scheduled_date}`, s.id);
+    });
 
-    if (insertErr) {
-      throw new Error(`Failed to insert schedules: ${insertErr.message}`);
+    const toInsert: any[] = [];
+    const toUpdate: any[] = [];
+
+    newScheduleRecords.forEach(record => {
+      const key = `${record.shop_id}_${record.scheduled_date}`;
+      if (existingMap.has(key)) {
+        // If it already exists, update it (keeping the same ID so referenced downloads don't break)
+        toUpdate.push({
+          id: existingMap.get(key),
+          ...record,
+          // Since it is updated, reset download/render status to pending
+          download_status: "pending",
+          render_status: "pending"
+        });
+      } else {
+        toInsert.push(record);
+      }
+    });
+
+    // Run updates in parallel (if any)
+    if (toUpdate.length > 0) {
+      const updatePromises = toUpdate.map(record => 
+        supabase
+          .from("schedules")
+          .update({
+            video_id: record.video_id,
+            template_id: record.template_id,
+            audio_track_id: record.audio_track_id,
+            occasion_id: record.occasion_id,
+            status: record.status,
+            download_status: record.download_status,
+            render_status: record.render_status,
+            batch_id: record.batch_id,
+            assigned_by: record.assigned_by
+          })
+          .eq("id", record.id)
+      );
+      const results = await Promise.all(updatePromises);
+      const firstErr = results.find(r => r.error);
+      if (firstErr) {
+        throw new Error(`Failed to update existing schedules: ${firstErr.error.message}`);
+      }
+    }
+
+    // Run inserts (if any)
+    if (toInsert.length > 0) {
+      const { error: insertErr } = await supabase
+        .from("schedules")
+        .insert(toInsert);
+
+      if (insertErr) {
+        throw new Error(`Failed to insert new schedules: ${insertErr.message}`);
+      }
     }
   }
 
