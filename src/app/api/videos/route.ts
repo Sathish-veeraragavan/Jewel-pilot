@@ -16,7 +16,8 @@ const CATEGORY_PREFIXES: Record<string, string> = {
   "Bracelets/Bangles": "BG",
   "Rings": "RG",
   "Earrings": "ER",
-  "Ankle Chains": "AC"
+  "Ankle Chains": "AC",
+  "Chains": "CH"
 };
 
 export async function GET(request: Request) {
@@ -83,7 +84,7 @@ export async function POST(request: Request) {
     // Action 2: Generate next available unique 2-character video code (e.g. NC-0001)
     if (action === "generate_code") {
       if (!category || !CATEGORY_PREFIXES[category]) {
-        return NextResponse.json({ error: "Invalid category. Select from: Necklace, Bracelets/Bangles, Rings, Earrings, Ankle Chains" }, { status: 400 });
+        return NextResponse.json({ error: "Invalid category. Select from: Necklace, Bracelets/Bangles, Rings, Earrings, Ankle Chains, Chains" }, { status: 400 });
       }
 
       const prefix = CATEGORY_PREFIXES[category];
@@ -106,7 +107,7 @@ export async function POST(request: Request) {
       }
 
       if (!CATEGORY_PREFIXES[category]) {
-        return NextResponse.json({ error: "Invalid category. Must be one of: Necklace, Bracelets/Bangles, Rings, Earrings, Ankle Chains" }, { status: 400 });
+        return NextResponse.json({ error: "Invalid category. Must be one of: Necklace, Bracelets/Bangles, Rings, Earrings, Ankle Chains, Chains" }, { status: 400 });
       }
 
       const prefix = CATEGORY_PREFIXES[category];

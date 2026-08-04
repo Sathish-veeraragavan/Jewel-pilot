@@ -18,7 +18,8 @@ const CATEGORY_OPTIONS = [
   { label: "Bracelets/Bangles (BG)", value: "Bracelets/Bangles" },
   { label: "Rings (RG)", value: "Rings" },
   { label: "Earrings (ER)", value: "Earrings" },
-  { label: "Ankle Chains (AC)", value: "Ankle Chains" }
+  { label: "Ankle Chains (AC)", value: "Ankle Chains" },
+  { label: "Chains (CH)", value: "Chains" }
 ];
 
 export default function VideoLibraryPage() {
@@ -249,7 +250,7 @@ export default function VideoLibraryPage() {
       {/* Header */}
       <PageHeader 
         title="Branded Video Library"
-        description="Manage promotional video assets categorized into Necklace (NC), Bracelets/Bangles (BG), Rings (RG), Earrings (ER), and Ankle Chains (AC) - Max 50 MB per video."
+        description="Manage promotional video assets categorized into Necklace (NC), Bracelets/Bangles (BG), Rings (RG), Earrings (ER), Ankle Chains (AC), and Chains (CH) - Max 50 MB per video."
         action={
           <div className="flex items-center space-x-3">
             <Button 

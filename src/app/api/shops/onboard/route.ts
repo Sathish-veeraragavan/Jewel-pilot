@@ -68,9 +68,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Password must be at least 6 characters long." }, { status: 400 });
     }
 
-    let cleanEmail = owner_email.trim().toLowerCase();
+    let cleanEmail = owner_email.replace(/\s+/g, "").toLowerCase();
     if (!cleanEmail.includes("@")) {
-      cleanEmail = `${cleanEmail}@aurumflow.com`;
+      // Strip any characters that aren't digits or a leading +
+      const cleanPhone = cleanEmail.replace(/[^0-9+]/g, "");
+      cleanEmail = `${cleanPhone}@aurumflow.com`;
     }
 
     // Auto-generate Unique Shop Code (e.g. SHOP-58291)

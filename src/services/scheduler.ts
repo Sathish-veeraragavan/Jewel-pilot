@@ -120,10 +120,11 @@ export async function generateAutoSchedules(
   const batchId = batch.id;
   logs.push(`Created schedule batch: ${batchId}`);
 
-  // 4. Load ALL past assignments to enforce strict "never repeat same video to same shop ever"
-  const { data: existingSchedules } = await supabase
-    .from("schedules")
-    .select("id, shop_id, video_id, scheduled_date");
+  // 4. Load ALL past assignments and downloads to enforce strict lockout
+  const [{ data: existingSchedules }, { data: existingDownloads }] = await Promise.all([
+    supabase.from("schedules").select("id, shop_id, video_id, scheduled_date"),
+    supabase.from("downloads").select("shop_id, video_id")
+  ]);
 
   const shopVideoHistory = new Map<string, Set<string>>();
   const districtWeekVideoMap = new Map<string, Set<string>>();
@@ -136,6 +137,21 @@ export async function generateAutoSchedules(
       shopVideoHistory.set(s.shop_id, new Set());
     }
     shopVideoHistory.get(s.shop_id)!.add(s.video_id);
+  });
+
+  (existingDownloads || []).forEach((dl) => {
+    if (dl.video_id) {
+      if (!shopVideoHistory.has(dl.shop_id)) {
+        shopVideoHistory.set(dl.shop_id, new Set());
+      }
+      shopVideoHistory.get(dl.shop_id)!.add(dl.video_id);
+    }
+  });
+
+  const availableCategories = Array.from(new Set(activeVideos.map(v => v.category)));
+  const shopCategoryRotations = new Map<string, string[]>();
+  activeShops.forEach((shop) => {
+    shopCategoryRotations.set(shop.id, shuffleArray(availableCategories));
   });
 
   const newScheduleRecords: any[] = [];
@@ -151,6 +167,11 @@ export async function generateAutoSchedules(
 
   // Iterate date-by-date for next 7 or 30 days
   for (let d = 0; d < daysCount; d++) {
+    // Clear district week maps every 7 days to reset week-level isolation
+    if (d > 0 && d % 7 === 0) {
+      districtWeekVideoMap.clear();
+    }
+
     const parts = options.startDate.split("-").map(Number);
     const currentDateObj = new Date(parts[0], parts[1] - 1, parts[2] + d);
     const currentDateStr = formatLocalDate(currentDateObj);
@@ -180,6 +201,9 @@ export async function generateAutoSchedules(
       const districtId = shop.district_id || "DIST";
       const lastCategory = shopLastCategoryMap.get(shop.id);
       
+      const rotation = shopCategoryRotations.get(shop.id) || availableCategories;
+      const targetCategory = rotation[d % rotation.length];
+      
       if (!districtWeekVideoMap.has(districtId)) {
         districtWeekVideoMap.set(districtId, new Set());
       }
@@ -198,7 +222,8 @@ export async function generateAutoSchedules(
       let chosenVideo = null;
       if (candidates.length > 0) {
         // Sort candidates:
-        // - Heavy Penalty (+1000) if category matches the previous day's category
+        // - Heavy Penalty (+10000) if category matches the previous day's category
+        // - Heavy Bonus (-5000) if category matches the target category for this day in the shuffled rotation
         // - Plus rotated shop offset to diversify referral shops on the same date
         candidates.sort((a, b) => {
           const aIndex = activeVideos.findIndex(v => v.id === a.id);
@@ -206,9 +231,13 @@ export async function generateAutoSchedules(
           const aDist = (aIndex + shopOffset) % activeVideos.length;
           const bDist = (bIndex + shopOffset) % activeVideos.length;
 
-          const aPenalty = (lastCategory && lastCategory === a.category) ? 1000 : 0;
-          const bPenalty = (lastCategory && lastCategory === b.category) ? 1000 : 0;
-          return (aPenalty + aDist + (a.usage_count || 0) * 10) - (bPenalty + bDist + (b.usage_count || 0) * 10);
+          const aPenalty = (lastCategory && lastCategory === a.category) ? 10000 : 0;
+          const bPenalty = (lastCategory && lastCategory === b.category) ? 10000 : 0;
+          
+          const aTargetBonus = (a.category === targetCategory) ? -5000 : 0;
+          const bTargetBonus = (b.category === targetCategory) ? -5000 : 0;
+          
+          return (aPenalty + aTargetBonus + aDist + (a.usage_count || 0) * 10) - (bPenalty + bTargetBonus + bDist + (b.usage_count || 0) * 10);
         });
         chosenVideo = candidates[0];
       } else {
@@ -216,9 +245,13 @@ export async function generateAutoSchedules(
         const districtOnlyFiltered = activeVideos.filter((v) => !districtUsedVideos.has(v.id));
         if (districtOnlyFiltered.length > 0) {
           districtOnlyFiltered.sort((a, b) => {
-            const aPenalty = (lastCategory && lastCategory === a.category) ? 1000 : 0;
-            const bPenalty = (lastCategory && lastCategory === b.category) ? 1000 : 0;
-            return (aPenalty + (a.usage_count || 0)) - (bPenalty + (b.usage_count || 0));
+            const aPenalty = (lastCategory && lastCategory === a.category) ? 10000 : 0;
+            const bPenalty = (lastCategory && lastCategory === b.category) ? 10000 : 0;
+            
+            const aTargetBonus = (a.category === targetCategory) ? -5000 : 0;
+            const bTargetBonus = (b.category === targetCategory) ? -5000 : 0;
+            
+            return (aPenalty + aTargetBonus + (a.usage_count || 0)) - (bPenalty + bTargetBonus + (b.usage_count || 0));
           });
           chosenVideo = districtOnlyFiltered[0];
           logs.push(`Relaxed history lockout for shop "${shop.name}" to prevent lockup.`);
@@ -226,9 +259,13 @@ export async function generateAutoSchedules(
           // Fallback 2: Worst case, select lowest overall usage video
           const allSorted = [...activeVideos];
           allSorted.sort((a, b) => {
-            const aPenalty = (lastCategory && lastCategory === a.category) ? 1000 : 0;
-            const bPenalty = (lastCategory && lastCategory === b.category) ? 1000 : 0;
-            return (aPenalty + (a.usage_count || 0)) - (bPenalty + (b.usage_count || 0));
+            const aPenalty = (lastCategory && lastCategory === a.category) ? 10000 : 0;
+            const bPenalty = (lastCategory && lastCategory === b.category) ? 10000 : 0;
+            
+            const aTargetBonus = (a.category === targetCategory) ? -5000 : 0;
+            const bTargetBonus = (b.category === targetCategory) ? -5000 : 0;
+            
+            return (aPenalty + aTargetBonus + (a.usage_count || 0)) - (bPenalty + bTargetBonus + (b.usage_count || 0));
           });
           chosenVideo = allSorted[0];
           logs.push(`Relaxed district isolation for shop "${shop.name}" on ${currentDateStr} due to pool exhaustion.`);
@@ -295,4 +332,13 @@ export async function generateAutoSchedules(
     logs,
     warnings,
   };
+}
+
+function shuffleArray<T>(array: T[]): T[] {
+  const arr = [...array];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
 }
