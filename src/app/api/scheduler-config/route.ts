@@ -139,6 +139,7 @@ export async function POST(request: Request) {
         horizon: targetHorizon,
         startDate: targetStartDate,
         userId,
+        shopIds: (shopIds && Array.isArray(shopIds)) ? shopIds : undefined
       });
 
       return NextResponse.json(result);

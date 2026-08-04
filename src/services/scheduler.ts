@@ -4,6 +4,7 @@ export interface ScheduleGenerationOptions {
   horizon: "1_week" | "1_month";
   startDate: string; // YYYY-MM-DD
   userId?: string;
+  shopIds?: string[];
 }
 
 export interface ScheduleGenerationResult {
@@ -31,7 +32,11 @@ export async function generateAutoSchedules(
     .from("shops")
     .select("id, name, shop_code, district_id, state_id, status, language_id, selected_rates");
 
-  const activeShops = (shops || []).filter(s => s.status !== "inactive" && s.status !== "suspended");
+  let activeShops = (shops || []).filter(s => s.status !== "inactive" && s.status !== "suspended");
+
+  if (options.shopIds && Array.isArray(options.shopIds) && options.shopIds.length > 0) {
+    activeShops = activeShops.filter(s => options.shopIds!.includes(s.id));
+  }
 
   if (shopsErr || activeShops.length === 0) {
     return {
@@ -41,11 +46,11 @@ export async function generateAutoSchedules(
       daysCount,
       shopsProcessed: 0,
       logs,
-      warnings: ["No active shops found for scheduling."],
+      warnings: ["No active shops found matching the selection criteria."],
     };
   }
 
-  logs.push(`Found ${activeShops.length} active shops across districts.`);
+  logs.push(`Found ${activeShops.length} target active shops for scheduling.`);
 
   // 2. Fetch available videos, templates, occasions, and music tracks
   const [{ data: videos }, { data: templates }, { data: occasions }, { data: musicTracks }] = await Promise.all([

@@ -65,6 +65,15 @@ export default function SchedulerConfigPage() {
     setFailsafeModalOpen(true);
   };
 
+  // Scheduler run modal
+  const [schedulerModalOpen, setSchedulerModalOpen] = useState(false);
+  const [selectedSchedulerShops, setSelectedSchedulerShops] = useState<string[]>([]);
+
+  const handleOpenSchedulerModal = () => {
+    setSelectedSchedulerShops(matrixData.shops.map((s: any) => s.id));
+    setSchedulerModalOpen(true);
+  };
+
   const handleManualTriggerRender = async () => {
     if (selectedFailsafeShops.length === 0) {
       alert("Please select at least one shop to trigger.");
@@ -130,6 +139,10 @@ export default function SchedulerConfigPage() {
   }, [startDate, horizon]);
 
   const handleRunAutoScheduler = async () => {
+    if (selectedSchedulerShops.length === 0) {
+      alert("Please select at least one shop to schedule.");
+      return;
+    }
     setGenerating(true);
     setBatchResult(null);
 
@@ -140,7 +153,8 @@ export default function SchedulerConfigPage() {
         body: JSON.stringify({
           action: "generate_schedule",
           horizon,
-          startDate
+          startDate,
+          shopIds: selectedSchedulerShops
         })
       });
       const data = await res.json();
@@ -149,6 +163,7 @@ export default function SchedulerConfigPage() {
         alert(`Auto-Scheduler Error: ${data.error}`);
       } else {
         setBatchResult(data);
+        setSchedulerModalOpen(false);
         fetchMatrixData();
       }
     } catch (err) {
@@ -287,7 +302,7 @@ export default function SchedulerConfigPage() {
               className="!py-1.5 text-xs w-40"
             />
             <Button 
-              onClick={handleRunAutoScheduler} 
+              onClick={handleOpenSchedulerModal} 
               disabled={generating}
               className="bg-accent hover:bg-yellow-400 text-primary font-bold text-xs flex items-center space-x-2 shadow"
             >
@@ -630,6 +645,81 @@ export default function SchedulerConfigPage() {
                 className="bg-primary text-white font-bold"
               >
                 {triggeringRender ? "Queuing..." : `Trigger Render (${selectedFailsafeShops.length})`}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Scheduler Shop Selection Modal */}
+      {schedulerModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-6 shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
+            <div>
+              <h3 className="text-base font-extrabold text-primary flex items-center space-x-2">
+                <Calendar className="w-5 h-5 text-accent animate-pulse" />
+                <span>Run Auto-Scheduler Batch</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Select shops to generate auto-schedules for. Horizon is set to <strong className="text-slate-800">{horizon === "1_week" ? "7 Days" : "30 Days"}</strong> starting from <strong className="text-slate-800">{startDate}</strong>.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <span className="text-xs font-bold text-slate-700">Shops ({selectedSchedulerShops.length} of {matrixData.shops.length} selected)</span>
+              <div className="space-x-2">
+                <button 
+                  type="button"
+                  onClick={() => setSelectedSchedulerShops(matrixData.shops.map((s: any) => s.id))}
+                  className="text-[10px] text-blue-600 hover:underline font-bold"
+                >
+                  Select All
+                </button>
+                <span className="text-slate-300">|</span>
+                <button 
+                  type="button"
+                  onClick={() => setSelectedSchedulerShops([])}
+                  className="text-[10px] text-slate-500 hover:underline font-bold"
+                >
+                  Deselect All
+                </button>
+              </div>
+            </div>
+
+            <div className="max-h-60 overflow-y-auto space-y-2 border border-slate-100 rounded-2xl p-3 bg-slate-50/50">
+              {matrixData.shops.map((shop: any) => {
+                const isChecked = selectedSchedulerShops.includes(shop.id);
+                return (
+                  <label key={shop.id} className="flex items-center space-x-3 p-2 hover:bg-white rounded-xl border border-transparent hover:border-slate-200 cursor-pointer transition-all">
+                    <input 
+                      type="checkbox" 
+                      checked={isChecked}
+                      onChange={() => {
+                        if (isChecked) {
+                          setSelectedSchedulerShops(selectedSchedulerShops.filter(id => id !== shop.id));
+                        } else {
+                          setSelectedSchedulerShops([...selectedSchedulerShops, shop.id]);
+                        }
+                      }}
+                      className="rounded text-primary focus:ring-primary h-4 w-4 border-slate-350"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-bold text-slate-900 truncate">{shop.name}</div>
+                      <div className="text-[10px] font-mono text-accent font-bold mt-0.5">{shop.shop_code || "SHOP"}</div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100">
+              <Button type="button" variant="outline" onClick={() => setSchedulerModalOpen(false)}>Cancel</Button>
+              <Button 
+                onClick={handleRunAutoScheduler} 
+                disabled={generating || selectedSchedulerShops.length === 0}
+                className="bg-accent text-primary font-bold hover:bg-yellow-400"
+              >
+                {generating ? "Scheduling..." : `Run Scheduler (${selectedSchedulerShops.length})`}
               </Button>
             </div>
           </div>
