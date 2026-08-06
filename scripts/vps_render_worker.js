@@ -259,23 +259,30 @@ function applyImageAnimation(el, wPx, hPx, xPx, yPx, startT, fadeDur, inputIdx, 
   const isFlipped = el.flip_h ?? el.flipH ?? false;
   const rotateDeg = el.rotate_deg ?? el.rotateDeg ?? 0;
 
+  const elType = el.type ?? "";
+  const elName = el.name ?? "";
+  const isLogo = elType === "shop_logo" || elName.includes("logo");
+
   // 1. Build transform filters (scale, flip, rotate)
-  let transformFilters = `scale=${wPx}:${hPx}`;
+  // Scale logo proportionally matching height (-1:hPx) to prevent stretching
+  let transformFilters = isLogo ? `scale=-1:${hPx}` : `scale=${wPx}:${hPx}`;
   if (isFlipped) transformFilters += `,hflip`;
   if (rotateDeg === 90) transformFilters += `,transpose=1`;
   else if (rotateDeg === 180) transformFilters += `,transpose=1,transpose=1`;
   else if (rotateDeg === 270) transformFilters += `,transpose=2`;
 
   // 2. Add entry animations (fade / slide / zoom / sparkle / bounce / block)
-  let overlayX = `${xPx}`;
+  // Center logo horizontally in the design box of width wPx (w = overlay_w in FFmpeg)
+  const xOffset = isLogo ? `+(${wPx}-w)/2` : "";
+  let overlayX = `${xPx}${xOffset}`;
   let overlayY = `${yPx}`;
   const baseFadeFilter = `,fade=in:st=${startT}:d=${fadeDur}:alpha=1`;
 
   if (animType === "slide_left") {
-    overlayX = `${xPx}+if(lt(t,${startT}),300,if(lt(t,${startT+fadeDur}),300*(1-(t-${startT})/${fadeDur}),0))`;
+    overlayX = `${xPx}${xOffset}+if(lt(t,${startT}),300,if(lt(t,${startT+fadeDur}),300*(1-(t-${startT})/${fadeDur}),0))`;
     transformFilters += baseFadeFilter;
   } else if (animType === "slide_right") {
-    overlayX = `${xPx}-if(lt(t,${startT}),300,if(lt(t,${startT+fadeDur}),300*(1-(t-${startT})/${fadeDur}),0))`;
+    overlayX = `${xPx}${xOffset}-if(lt(t,${startT}),300,if(lt(t,${startT+fadeDur}),300*(1-(t-${startT})/${fadeDur}),0))`;
     transformFilters += baseFadeFilter;
   } else if (animType === "slide_up") {
     overlayY = `${yPx}+if(lt(t,${startT}),200,if(lt(t,${startT+fadeDur}),200*(1-(t-${startT})/${fadeDur}),0))`;
@@ -284,11 +291,11 @@ function applyImageAnimation(el, wPx, hPx, xPx, yPx, startT, fadeDur, inputIdx, 
     overlayY = `${yPx}-if(lt(t,${startT}),200,if(lt(t,${startT+fadeDur}),200*(1-(t-${startT})/${fadeDur}),0))`;
     transformFilters += baseFadeFilter;
   } else if (animType === "zoom_in") {
-    overlayX = `${xPx}+(${wPx}/2)*(1-if(lt(t,${startT}),0,if(lt(t,${startT+fadeDur}),(t-${startT})/${fadeDur},1)))`;
+    overlayX = `${xPx}${xOffset}+(${wPx}/2)*(1-if(lt(t,${startT}),0,if(lt(t,${startT+fadeDur}),(t-${startT})/${fadeDur},1)))`;
     overlayY = `${yPx}+(${hPx}/2)*(1-if(lt(t,${startT}),0,if(lt(t,${startT+fadeDur}),(t-${startT})/${fadeDur},1)))`;
     transformFilters += `,scale='iw*if(lt(t,${startT}),0,if(lt(t,${startT+fadeDur}),(t-${startT})/${fadeDur},1))':'-1'${baseFadeFilter}`;
   } else if (animType === "zoom_out") {
-    overlayX = `${xPx}-(${wPx}/2)*(1-if(lt(t,${startT}),0,if(lt(t,${startT+fadeDur}),(t-${startT})/${fadeDur},1)))`;
+    overlayX = `${xPx}${xOffset}-(${wPx}/2)*(1-if(lt(t,${startT}),0,if(lt(t,${startT+fadeDur}),(t-${startT})/${fadeDur},1)))`;
     overlayY = `${yPx}-(${hPx}/2)*(1-if(lt(t,${startT}),0,if(lt(t,${startT+fadeDur}),(t-${startT})/${fadeDur},1)))`;
     transformFilters += `,scale='iw*(2-if(lt(t,${startT}),1,if(lt(t,${startT+fadeDur}),1+(t-${startT})/${fadeDur},2)))':'-1'${baseFadeFilter}`;
   } else if (animType === "bounce") {
@@ -296,7 +303,7 @@ function applyImageAnimation(el, wPx, hPx, xPx, yPx, startT, fadeDur, inputIdx, 
     transformFilters += baseFadeFilter;
   } else if (animType === "block") {
     const revealDur = 0.5;
-    overlayX = `${xPx}+if(lt(t,${startT}),iw,if(lt(t,${startT+revealDur}),iw*(1-(t-${startT})/${revealDur}),0))`;
+    overlayX = `${xPx}${xOffset}+if(lt(t,${startT}),iw,if(lt(t,${startT+revealDur}),iw*(1-(t-${startT})/${revealDur}),0))`;
     transformFilters += baseFadeFilter;
   } else {
     transformFilters += baseFadeFilter;

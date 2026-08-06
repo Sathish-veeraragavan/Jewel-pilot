@@ -52,13 +52,17 @@ export async function generateAutoSchedules(
 
   logs.push(`Found ${activeShops.length} target active shops for scheduling.`);
 
-  // 2. Fetch available videos, templates, occasions, and music tracks
-  const [{ data: videos }, { data: templates }, { data: occasions }, { data: musicTracks }] = await Promise.all([
-    supabase.from("videos").select("id, title, usage_count, cloudflare_url, category"),
+  // 2. Fetch available videos, templates, occasions, music tracks, and states
+  const [{ data: videos }, { data: templates }, { data: occasions }, { data: musicTracks }, { data: states }] = await Promise.all([
+    supabase.from("videos").select("id, title, usage_count, cloudflare_url, category, is_lite_weight").eq("is_active", true),
     supabase.from("templates").select("id, name, template_type, version, placeholder_count").eq("status", "active"),
     supabase.from("occasions").select("id, name, start_date, end_date"),
     supabase.from("music_tracks").select("id, title").eq("is_active", true),
+    supabase.from("states").select("id, name, code")
   ]);
+
+  const keralaState = (states || []).find((s: any) => s.code === "KL" || s.name.toLowerCase() === "kerala");
+  const keralaStateId = keralaState?.id;
 
   const activeVideos = videos || [];
   let availableTemplates = templates || [];
@@ -125,9 +129,13 @@ export async function generateAutoSchedules(
   const batchId = batch.id;
   logs.push(`Created schedule batch: ${batchId}`);
 
-  // 4. Load ALL past assignments and downloads to enforce strict lockout
+  // 4. Load past assignments (within last 30 days to enforce lockout history) and downloads
+  const cutoffDate = new Date(options.startDate);
+  cutoffDate.setDate(cutoffDate.getDate() - 30);
+  const cutoffStr = cutoffDate.toISOString().split("T")[0];
+
   const [{ data: existingSchedules }, { data: existingDownloads }] = await Promise.all([
-    supabase.from("schedules").select("id, shop_id, video_id, scheduled_date"),
+    supabase.from("schedules").select("id, shop_id, video_id, scheduled_date").gte("scheduled_date", cutoffStr),
     supabase.from("downloads").select("shop_id, video_id")
   ]);
 
@@ -221,6 +229,12 @@ export async function generateAutoSchedules(
       let candidates = activeVideos.filter((v) => {
         if (shopHistory.has(v.id)) return false;
         if (districtUsedVideos.has(v.id)) return false;
+        
+        // Kerala + Lite Weight Matching Rule
+        const isKeralaShop = shop.state_id === keralaStateId;
+        const isVideoLiteWeight = !!v.is_lite_weight;
+        if (isKeralaShop !== isVideoLiteWeight) return false;
+        
         return true;
       });
 
@@ -246,8 +260,14 @@ export async function generateAutoSchedules(
         });
         chosenVideo = candidates[0];
       } else {
-        // Fallback 1: Relax history lockout but preserve district week isolation
-        const districtOnlyFiltered = activeVideos.filter((v) => !districtUsedVideos.has(v.id));
+        // Fallback 1: Relax history lockout but preserve district week isolation & Kerala matching
+        const districtOnlyFiltered = activeVideos.filter((v) => {
+          if (districtUsedVideos.has(v.id)) return false;
+          const isKeralaShop = shop.state_id === keralaStateId;
+          const isVideoLiteWeight = !!v.is_lite_weight;
+          return isKeralaShop === isVideoLiteWeight;
+        });
+
         if (districtOnlyFiltered.length > 0) {
           districtOnlyFiltered.sort((a, b) => {
             const aPenalty = (lastCategory && lastCategory === a.category) ? 10000 : 0;
@@ -261,19 +281,32 @@ export async function generateAutoSchedules(
           chosenVideo = districtOnlyFiltered[0];
           logs.push(`Relaxed history lockout for shop "${shop.name}" to prevent lockup.`);
         } else {
-          // Fallback 2: Worst case, select lowest overall usage video
-          const allSorted = [...activeVideos];
-          allSorted.sort((a, b) => {
-            const aPenalty = (lastCategory && lastCategory === a.category) ? 10000 : 0;
-            const bPenalty = (lastCategory && lastCategory === b.category) ? 10000 : 0;
-            
-            const aTargetBonus = (a.category === targetCategory) ? -5000 : 0;
-            const bTargetBonus = (b.category === targetCategory) ? -5000 : 0;
-            
-            return (aPenalty + aTargetBonus + (a.usage_count || 0)) - (bPenalty + bTargetBonus + (b.usage_count || 0));
+          // Fallback 2: Worst case, select lowest overall usage video (filtered to Kerala state preference)
+          const allSorted = activeVideos.filter((v) => {
+            const isKeralaShop = shop.state_id === keralaStateId;
+            const isVideoLiteWeight = !!v.is_lite_weight;
+            return isKeralaShop === isVideoLiteWeight;
           });
-          chosenVideo = allSorted[0];
-          logs.push(`Relaxed district isolation for shop "${shop.name}" on ${currentDateStr} due to pool exhaustion.`);
+
+          if (allSorted.length > 0) {
+            allSorted.sort((a, b) => {
+              const aPenalty = (lastCategory && lastCategory === a.category) ? 10000 : 0;
+              const bPenalty = (lastCategory && lastCategory === b.category) ? 10000 : 0;
+              
+              const aTargetBonus = (a.category === targetCategory) ? -5000 : 0;
+              const bTargetBonus = (b.category === targetCategory) ? -5000 : 0;
+              
+              return (aPenalty + aTargetBonus + (a.usage_count || 0)) - (bPenalty + bTargetBonus + (b.usage_count || 0));
+            });
+            chosenVideo = allSorted[0];
+            logs.push(`Relaxed district isolation for shop "${shop.name}" on ${currentDateStr} due to pool exhaustion.`);
+          } else {
+            // Absolute last resort fallback: select any active video
+            const absoluteFallback = [...activeVideos];
+            absoluteFallback.sort((a, b) => (a.usage_count || 0) - (b.usage_count || 0));
+            chosenVideo = absoluteFallback[0];
+            logs.push(`Relaxed all rules (including Kerala Lite Weight rule) for shop "${shop.name}" on ${currentDateStr} due to absolute pool exhaustion.`);
+          }
         }
       }
 

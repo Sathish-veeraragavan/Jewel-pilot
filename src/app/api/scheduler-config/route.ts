@@ -66,7 +66,10 @@ export async function GET(request: Request) {
           templates(id, name, template_type, outro_url),
           occasions(id, name),
           music_tracks:audio_track_id(id, title)
-        `).order("scheduled_date", { ascending: true }),
+        `)
+        .gte("scheduled_date", startDate)
+        .lte("scheduled_date", endDate)
+        .order("scheduled_date", { ascending: true }),
         supabaseAdmin.from("videos").select("id, title, category").eq("is_active", true),
         supabaseAdmin.from("templates").select("id, name, template_type, outro_url").eq("status", "active"),
         supabaseAdmin.from("music_tracks").select("id, title").eq("is_active", true),
@@ -152,7 +155,7 @@ export async function POST(request: Request) {
       // 1. Fetch all schedules for target date, joining shops to check pricing_mode
       let query = supabaseAdmin
         .from("schedules")
-        .select("id, shop_id, video_id, template_id, occasion_id, audio_track_id, shops(association_id, pricing_mode)")
+        .select("id, shop_id, video_id, template_id, occasion_id, audio_track_id, scheduled_date, shops(association_id, pricing_mode)")
         .eq("scheduled_date", targetDate);
 
       if (shopIds && Array.isArray(shopIds)) {
@@ -192,7 +195,8 @@ export async function POST(request: Request) {
           video_library_id: s.video_id,
           priority: "High",
           status: "Pending",
-          commodity_rate_id: matchingRate?.id || null
+          commodity_rate_id: matchingRate?.id || null,
+          scheduled_at: `${(s as any).scheduled_date}T00:00:00.000Z`
         };
       });
 

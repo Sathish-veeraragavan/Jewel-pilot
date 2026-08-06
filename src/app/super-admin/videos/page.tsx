@@ -9,6 +9,7 @@ import {
   Select, 
   Modal, 
   SearchBar, 
+  StatusBadge, 
   LoadingSpinner 
 } from "@/components/ui/reusable";
 import { Film, Upload, Eye, Trash2, RefreshCw } from "lucide-react";
@@ -45,7 +46,8 @@ export default function VideoLibraryPage() {
     title: "",
     category: "Necklace",
     occasion_ids: [],
-    cloudflare_url: ""
+    cloudflare_url: "",
+    is_lite_weight: false
   });
   const [uploadingFile, setUploadingFile] = useState(false);
   const [wizardError, setWizardError] = useState<string | null>(null);
@@ -123,6 +125,24 @@ export default function VideoLibraryPage() {
       alert("Failed to delete video asset.");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleToggleVideoStatus = async (id: string, currentStatus: boolean) => {
+    try {
+      const res = await fetch("/api/videos", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, is_active: !currentStatus })
+      });
+      const data = await res.json();
+      if (data.error) {
+        alert(`Failed to update status: ${data.error}`);
+      } else {
+        fetchVideos();
+      }
+    } catch (err) {
+      alert("Failed to update video status.");
     }
   };
 
@@ -227,7 +247,7 @@ export default function VideoLibraryPage() {
       } else {
         setWizardOpen(false);
         setWizardStep(1);
-        setWizardPayload({ title: "", category: "Necklace", occasion_ids: [], cloudflare_url: "" });
+        setWizardPayload({ title: "", category: "Necklace", occasion_ids: [], cloudflare_url: "", is_lite_weight: false });
         fetchVideos();
       }
     } catch (err) {
@@ -313,7 +333,7 @@ export default function VideoLibraryPage() {
       {loading ? (
         <LoadingSpinner />
       ) : (
-        <Table headers={["Asset Code & Title", "Category", "Target Occasions", "Usage Renders", "Actions"]}>
+        <Table headers={["Asset Code & Title", "Category", "Target Occasions", "Status", "Usage Renders", "Actions"]}>
           {filteredVideos.length === 0 ? (
             <tr>
               <td colSpan={5} className="py-8 text-center text-slate-500 text-xs font-semibold">
@@ -335,9 +355,14 @@ export default function VideoLibraryPage() {
                   </div>
                 </td>
                 <td className="py-4 px-6">
-                  <span className="bg-slate-100 border border-slate-200 text-slate-800 px-2.5 py-1 rounded-md text-xs font-bold">
+                  <span className="bg-slate-100 border border-slate-200 text-slate-800 px-2.5 py-1 rounded-md text-xs font-bold block w-fit">
                     {video.category}
                   </span>
+                  {video.is_lite_weight && (
+                    <span className="bg-blue-50 border border-blue-200 text-blue-800 text-[10px] px-1.5 py-0.5 rounded font-bold mt-1 block w-fit">
+                      Lite Weight
+                    </span>
+                  )}
                 </td>
                 <td className="py-4 px-6 space-y-1">
                   <div className="flex flex-wrap gap-1">
@@ -355,9 +380,23 @@ export default function VideoLibraryPage() {
                     )}
                   </div>
                 </td>
+                <td className="py-4 px-6">
+                  <StatusBadge status={video.is_active ? "active" : "inactive"} />
+                </td>
                 <td className="py-4 px-6 font-bold text-slate-700">{video.usage_count || 0} times</td>
                 <td className="py-4 px-6">
                   <div className="flex items-center space-x-2">
+                    <button 
+                      onClick={() => handleToggleVideoStatus(video.id, video.is_active)}
+                      className={`p-1.5 rounded-lg text-xs font-bold border transition-colors flex items-center space-x-1 ${
+                        video.is_active
+                          ? "bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200"
+                          : "bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
+                      }`}
+                      title="Toggle Active / Inactive"
+                    >
+                      {video.is_active ? "Deactivate" : "Activate"}
+                    </button>
                     <button 
                       onClick={() => { setPreviewVideo(video); setPreviewOpen(true); }}
                       className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 text-xs font-semibold flex items-center space-x-1"
@@ -461,6 +500,20 @@ export default function VideoLibraryPage() {
                 </div>
               </div>
 
+              {/* Lite Weight Toggle */}
+              <div className="flex items-center space-x-2 bg-slate-50 p-3 rounded-xl border border-slate-150">
+                <input 
+                  type="checkbox" 
+                  id="wizard-lite-weight"
+                  checked={wizardPayload.is_lite_weight || false}
+                  onChange={(e) => setWizardPayload({ ...wizardPayload, is_lite_weight: e.target.checked })}
+                  className="w-4 h-4 text-accent rounded"
+                />
+                <label htmlFor="wizard-lite-weight" className="text-xs font-semibold text-slate-700 cursor-pointer">
+                  Mark as Lite Weight Video (assigned to Kerala shops)
+                </label>
+              </div>
+
               <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100">
                 <Button variant="outline" onClick={() => setWizardStep(1)}>Back</Button>
                 <Button onClick={() => setWizardStep(3)}>Review Asset</Button>
@@ -483,6 +536,10 @@ export default function VideoLibraryPage() {
                 <div>
                   <span className="font-semibold text-slate-500 mr-2">Category:</span>
                   <span className="font-semibold text-slate-700">{wizardPayload.category}</span>
+                </div>
+                <div>
+                  <span className="font-semibold text-slate-500 mr-2">Type / Class:</span>
+                  <span className="font-semibold text-slate-700">{wizardPayload.is_lite_weight ? "Lite Weight Video" : "Standard Video"}</span>
                 </div>
                 <div>
                   <span className="font-semibold text-slate-500 mr-2">Cloudflare R2 URL:</span>
@@ -519,6 +576,10 @@ export default function VideoLibraryPage() {
               <div>
                 <span className="font-semibold text-slate-500 mr-2">Category:</span>
                 <span className="font-semibold text-slate-700">{previewVideo.category}</span>
+              </div>
+              <div>
+                <span className="font-semibold text-slate-500 mr-2">Type / Class:</span>
+                <span className="font-semibold text-slate-700">{previewVideo.is_lite_weight ? "Lite Weight Video" : "Standard Video"}</span>
               </div>
               <div>
                 <span className="font-semibold text-slate-500 mr-2">Storage URL:</span>

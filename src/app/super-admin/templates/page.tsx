@@ -250,7 +250,7 @@ export default function TemplateManagerPage() {
 
   const handleToggleStatus = async () => {
     if (!statusTarget) return;
-    const nextStatus = statusTarget.status === "active" ? "inactive" : "active";
+    const nextStatus = statusTarget.status === "active" ? "archived" : "active";
     try {
       const res = await fetch("/api/templates", {
         method: "PUT",
@@ -457,7 +457,7 @@ export default function TemplateManagerPage() {
               onChange={(e) => setTemplateStatus(e.target.value)}
               options={[
                 { label: "Active", value: "active" },
-                { label: "Inactive", value: "inactive" }
+                { label: "Inactive", value: "archived" }
               ]}
             />
             <Select 

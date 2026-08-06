@@ -39,7 +39,7 @@ export async function GET(request: Request) {
       { data: goldRates }
     ] = await Promise.all([
       supabaseAdmin.from("shops").select("id, name, state_id, district_id, status, language_id"),
-      supabaseAdmin.from("videos").select("id, title, category, cloudflare_url, is_active, usage_count"),
+      supabaseAdmin.from("videos").select("id, title, category, cloudflare_url, is_active, usage_count, is_lite_weight"),
       supabaseAdmin.from("templates").select("id, name, template_type, status, version, config"),
       supabaseAdmin.from("occasions").select("id, name, priority, start_date, end_date, greetings, states, languages, status"),
       supabaseAdmin.from("system_settings").select("setting_key, value"),
@@ -117,7 +117,7 @@ export async function POST(request: Request) {
       { data: systemSettings },
       { data: goldRates }
     ] = await Promise.all([
-      supabaseAdmin.from("videos").select("id, title, category, cloudflare_url, is_active, usage_count"),
+      supabaseAdmin.from("videos").select("id, title, category, cloudflare_url, is_active, usage_count, is_lite_weight"),
       supabaseAdmin.from("templates").select("id, name, template_type, status, version, config, occasion_id, placeholder_count"),
       supabaseAdmin.from("occasions").select("id, name, priority, start_date, end_date, greetings, states, languages, status"),
       supabaseAdmin.from("system_settings").select("setting_key, value"),
@@ -197,9 +197,23 @@ export async function POST(request: Request) {
       selectedVideo = videos?.find(v => v.id === videoOverrideId) || null;
       traceLogs.push(`Video selection manually overridden to: "${selectedVideo?.title}"`);
     } else {
+      const { data: states } = await supabaseAdmin.from("states").select("id, code, name");
+      const keralaState = states?.find(s => s.code === 'KL' || s.name.toLowerCase() === 'kerala');
+      const isKeralaShop = keralaState ? shop.state_id === keralaState.id : false;
+
       for (const vid of (videos || [])) {
         let isEligible = vid.is_active;
         let rejectReason = isEligible ? "" : "Asset status is archived/inactive";
+
+        if (isEligible) {
+          const isVideoLiteWeight = !!vid.is_lite_weight;
+          if (isKeralaShop !== isVideoLiteWeight) {
+            isEligible = false;
+            rejectReason = isKeralaShop 
+              ? "Shop is in Kerala but video is not marked as Lite Weight" 
+              : "Video is marked as Lite Weight but shop is not in Kerala";
+          }
+        }
 
         videoEvaluations.push({
           id: vid.id,

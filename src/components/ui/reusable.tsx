@@ -229,7 +229,7 @@ export function SearchBar({ value, onChange, placeholder = "Search..." }: Search
 
 // 9. Status Badge
 interface BadgeProps {
-  status: "active" | "pending" | "expired" | "suspended" | "cancelled" | "draft" | "processing" | "completed" | "failed";
+  status: "active" | "pending" | "expired" | "suspended" | "cancelled" | "draft" | "processing" | "completed" | "failed" | "archived" | "inactive";
 }
 
 export function StatusBadge({ status }: BadgeProps) {
@@ -243,6 +243,8 @@ export function StatusBadge({ status }: BadgeProps) {
     suspended: "bg-orange-50 text-orange-700 border-orange-200",
     cancelled: "bg-slate-100 text-slate-700 border-slate-300",
     failed: "bg-red-50 text-red-700 border-red-200",
+    archived: "bg-slate-100 text-slate-600 border-slate-200",
+    inactive: "bg-slate-100 text-slate-600 border-slate-200",
   };
 
   return (

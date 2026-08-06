@@ -56,7 +56,8 @@ export async function POST(request: Request) {
       thumbnail_url,
       state_ids,
       language_ids,
-      occasion_ids
+      occasion_ids,
+      is_lite_weight
     } = body;
 
     // Action 1: Sync R2 bucket with Supabase DB - purge orphaned records if deleted directly in R2
@@ -132,6 +133,7 @@ export async function POST(request: Request) {
           state_tags: state_ids || [],
           language_tags: language_ids || [],
           occasion_tags: occasion_ids || [],
+          is_lite_weight: is_lite_weight || false,
           usage_count: 0,
           created_by: user.id
         }])
@@ -160,14 +162,16 @@ export async function PUT(request: Request) {
 
   try {
     const body = await request.json();
-    const { id, title, category, state_ids, language_ids, occasion_ids } = body;
+    const { id, title, category, state_ids, language_ids, occasion_ids, is_active, is_lite_weight } = body;
 
-    const updatePayload: any = { updated_at: new Date() };
-    if (title) updatePayload.title = title;
-    if (category) updatePayload.category = category;
-    if (state_ids) updatePayload.state_tags = state_ids;
-    if (language_ids) updatePayload.language_tags = language_ids;
-    if (occasion_ids) updatePayload.occasion_tags = occasion_ids;
+    const updatePayload: any = {};
+    if (title !== undefined) updatePayload.title = title;
+    if (category !== undefined) updatePayload.category = category;
+    if (state_ids !== undefined) updatePayload.state_tags = state_ids;
+    if (language_ids !== undefined) updatePayload.language_tags = language_ids;
+    if (occasion_ids !== undefined) updatePayload.occasion_tags = occasion_ids;
+    if (is_active !== undefined) updatePayload.is_active = is_active;
+    if (is_lite_weight !== undefined) updatePayload.is_lite_weight = is_lite_weight;
 
     const { error: baseError } = await supabaseAdmin
       .from("videos")

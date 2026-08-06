@@ -23,6 +23,14 @@ async function checkRole(supabase: any) {
   return profile?.role || null;
 }
 
+function formatShopPhone(phoneStr: string): string {
+  if (!phoneStr) return "";
+  const parts = phoneStr.split(/[,/;]|\s{2,}/).map(p => p.trim()).filter(Boolean);
+  if (parts.length === 0) return "";
+  if (parts.length === 1) return `PH: ${parts[0]}`;
+  return `PH: ${parts.join(" / ")}`;
+}
+
 export async function GET(request: Request) {
   const supabaseAdmin = getAdminSupabase();
   const { searchParams } = new URL(request.url);
@@ -115,7 +123,7 @@ export async function POST(request: Request) {
       // Verify gold rates are published for this job's scheduled date before letting worker process
       const { data: jobCheck } = await supabaseAdmin
         .from("render_jobs")
-        .select("shop_id, template_id, video_library_id, commodity_rate_id")
+        .select("shop_id, template_id, video_library_id, commodity_rate_id, scheduled_at")
         .eq("id", jobId)
         .single();
 
@@ -137,13 +145,25 @@ export async function POST(request: Request) {
 
         if (!rate) {
           // Fallback to schedules mapping
-          const { data: schedule } = await supabaseAdmin
+          let targetDateStr = null;
+          if (jobCheck.scheduled_at) {
+            targetDateStr = jobCheck.scheduled_at.split("T")[0];
+          }
+
+          let scheduleQuery = supabaseAdmin
             .from("schedules")
             .select("scheduled_date")
             .eq("shop_id", jobCheck.shop_id)
             .eq("video_id", jobCheck.video_library_id)
-            .eq("template_id", jobCheck.template_id)
-            .order("scheduled_date", { ascending: false })
+            .eq("template_id", jobCheck.template_id);
+
+          if (targetDateStr) {
+            scheduleQuery = scheduleQuery.eq("scheduled_date", targetDateStr);
+          } else {
+            scheduleQuery = scheduleQuery.order("scheduled_date", { ascending: false });
+          }
+
+          const { data: schedule } = await scheduleQuery
             .limit(1)
             .maybeSingle();
 
@@ -201,7 +221,7 @@ export async function POST(request: Request) {
       const { data: jobDetails } = await supabaseAdmin
         .from("render_jobs")
         .select(`
-          id, shop_id, template_id, video_library_id, occasion_id, commodity_rate_id
+          id, shop_id, template_id, video_library_id, occasion_id, commodity_rate_id, scheduled_at
         `)
         .eq("id", jobId)
         .single();
@@ -211,7 +231,12 @@ export async function POST(request: Request) {
       }
 
       // 1. Fetch associated schedule date and occasion
-      const { data: schedule } = await supabaseAdmin
+      let targetDateStr = null;
+      if (jobDetails.scheduled_at) {
+        targetDateStr = jobDetails.scheduled_at.split("T")[0];
+      }
+
+      let scheduleQuery = supabaseAdmin
         .from("schedules")
         .select(`
           scheduled_date,
@@ -221,8 +246,15 @@ export async function POST(request: Request) {
         `)
         .eq("shop_id", jobDetails.shop_id)
         .eq("video_id", jobDetails.video_library_id)
-        .eq("template_id", jobDetails.template_id)
-        .order("scheduled_date", { ascending: false })
+        .eq("template_id", jobDetails.template_id);
+
+      if (targetDateStr) {
+        scheduleQuery = scheduleQuery.eq("scheduled_date", targetDateStr);
+      } else {
+        scheduleQuery = scheduleQuery.order("scheduled_date", { ascending: false });
+      }
+
+      const { data: schedule } = await scheduleQuery
         .limit(1)
         .maybeSingle();
 
@@ -616,7 +648,7 @@ export async function POST(request: Request) {
         template_config: template?.config || null,
         
         shop_name: shop?.name || "",
-        shop_phone: shop?.phone ? `PH: ${shop.phone}` : "",
+        shop_phone: shop?.phone ? formatShopPhone(shop.phone) : "",
         shop_address: shop?.address || "",
         scheduled_date: scheduledDate,
         formatted_date: formattedDate,
