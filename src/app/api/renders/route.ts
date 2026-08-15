@@ -326,7 +326,7 @@ export async function POST(request: Request) {
           logo_url: demoMeta.logo_url || "",
           qr_code_url: demoMeta.qr_code_url || null,
           language_id: null,
-          selected_rates: ["rate_22k_1g", "rate_22k_8g", "rate_silver_1g"],
+          selected_rates: demoMeta.selected_rates || ["rate_22k_1g", "rate_22k_8g", "rate_silver_1g"],
           association_id: null,
           pricing_mode: "custom_manual",
           discount_type: null,

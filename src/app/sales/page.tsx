@@ -56,6 +56,16 @@ export default function SalesDashboardPage() {
     association_id: ""
   });
 
+  const [pricingMode, setPricingMode] = useState<"association" | "manual">("association");
+  const [manualRates, setManualRates] = useState({
+    rate_22k: "6500",
+    rate_24k: "7100",
+    rate_18k: "5300",
+    rate_9k: "2600",
+    rate_silver: "90"
+  });
+  const [selectedRates, setSelectedRates] = useState<string[]>(["rate_22k_1g", "rate_22k_8g", "rate_silver_1g"]);
+
   // Demo video generation tracking
   const [demoJobId, setDemoJobId] = useState<string | null>(null);
   const [demoJobStatus, setDemoJobStatus] = useState<string | null>(null);
@@ -173,7 +183,10 @@ export default function SalesDashboardPage() {
           logo_url: demoForm.logo_url,
           video_library_id: demoForm.video_library_id,
           template_id: demoForm.template_id,
-          association_id: demoForm.association_id || null
+          association_id: pricingMode === "association" ? (demoForm.association_id || null) : null,
+          pricing_mode: pricingMode,
+          manual_rates: pricingMode === "manual" ? manualRates : null,
+          selected_rates: selectedRates
         })
       });
 
@@ -334,16 +347,149 @@ export default function SalesDashboardPage() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Select Rate Association Group</label>
-                  <Select 
-                    value={demoForm.association_id}
-                    onChange={(e) => setDemoForm({ ...demoForm, association_id: e.target.value })}
-                    options={[
-                      { label: "-- Global Default Rates (No Association) --", value: "" },
-                      ...associations.map(a => ({ label: a.name, value: a.id }))
-                    ]}
-                  />
+                {/* Pricing Mode Selection */}
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">Pricing Source</label>
+                  <div className="flex bg-slate-100 p-0.5 rounded-xl border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setPricingMode("association")}
+                      className={`flex-1 text-center py-1.5 text-xs font-bold rounded-lg transition-all ${
+                        pricingMode === "association" ? "bg-white text-primary shadow-sm" : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      Use Association
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPricingMode("manual")}
+                      className={`flex-1 text-center py-1.5 text-xs font-bold rounded-lg transition-all ${
+                        pricingMode === "manual" ? "bg-white text-primary shadow-sm" : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      Manual Rates Input
+                    </button>
+                  </div>
+                </div>
+
+                {pricingMode === "association" ? (
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Select Rate Association Group</label>
+                    <Select 
+                      value={demoForm.association_id}
+                      onChange={(e) => setDemoForm({ ...demoForm, association_id: e.target.value })}
+                      options={[
+                        { label: "-- Global Default Rates (No Association) --", value: "" },
+                        ...associations.map(a => ({ label: a.name, value: a.id }))
+                      ]}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2 bg-slate-50 border border-slate-200/80 p-3 rounded-xl">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">Manual Metal Rates (per gram)</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-500 uppercase block mb-1">22K Gold</span>
+                        <input
+                          type="number"
+                          value={manualRates.rate_22k}
+                          onChange={(e) => setManualRates({ ...manualRates, rate_22k: e.target.value })}
+                          className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-accent"
+                          placeholder="e.g. 6500"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-500 uppercase block mb-1">24K Gold</span>
+                        <input
+                          type="number"
+                          value={manualRates.rate_24k}
+                          onChange={(e) => setManualRates({ ...manualRates, rate_24k: e.target.value })}
+                          className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-accent"
+                          placeholder="e.g. 7100"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-500 uppercase block mb-1">18K Gold</span>
+                        <input
+                          type="number"
+                          value={manualRates.rate_18k}
+                          onChange={(e) => setManualRates({ ...manualRates, rate_18k: e.target.value })}
+                          className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-accent"
+                          placeholder="e.g. 5300"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-500 uppercase block mb-1">9K Gold</span>
+                        <input
+                          type="number"
+                          value={manualRates.rate_9k}
+                          onChange={(e) => setManualRates({ ...manualRates, rate_9k: e.target.value })}
+                          className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-accent"
+                          placeholder="e.g. 2600"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-bold text-slate-500 uppercase block mb-1">Silver</span>
+                        <input
+                          type="number"
+                          value={manualRates.rate_silver}
+                          onChange={(e) => setManualRates({ ...manualRates, rate_silver: e.target.value })}
+                          className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-accent"
+                          placeholder="e.g. 90"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Display Slots Selection */}
+                <div className="space-y-2 border-t border-slate-100 pt-3">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                    Display slots (Max 4, click to select in order)
+                  </label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      { id: "rate_22k_1g", label: "22K Gold (1G)" },
+                      { id: "rate_22k_8g", label: "22K Gold (8G / 1 Sov)" },
+                      { id: "rate_24k_1g", label: "24K Gold (1G)" },
+                      { id: "rate_18k_1g", label: "18K Gold (1G)" },
+                      { id: "rate_18k_8g", label: "18K Gold (8G / 1 Sov)" },
+                      { id: "rate_9k_1g", label: "9K Gold (1G)" },
+                      { id: "rate_silver_1g", label: "Silver (1G)" }
+                    ].map((opt) => {
+                      const idx = selectedRates.indexOf(opt.id);
+                      const isSel = idx !== -1;
+                      return (
+                        <button
+                          type="button"
+                          key={opt.id}
+                          onClick={() => {
+                            if (isSel) {
+                              setSelectedRates(selectedRates.filter(r => r !== opt.id));
+                            } else {
+                              if (selectedRates.length >= 4) {
+                                alert("Maximum 4 rate slots can be selected.");
+                                return;
+                              }
+                              setSelectedRates([...selectedRates, opt.id]);
+                            }
+                          }}
+                          className={`flex items-center justify-between p-2 rounded-xl text-left text-xs font-bold border transition-all ${
+                            isSel 
+                              ? "bg-amber-50/70 border-accent text-primary" 
+                              : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                          }`}
+                        >
+                          <span>{opt.label}</span>
+                          {isSel && (
+                            <span className="bg-accent text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                              {idx + 1}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div className="pt-2">

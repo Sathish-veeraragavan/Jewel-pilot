@@ -53,7 +53,10 @@ export async function POST(request: Request) {
       logo_url, 
       video_library_id, 
       template_id,
-      association_id
+      association_id,
+      selected_rates,
+      pricing_mode,
+      manual_rates
     } = body;
 
     if (!shop_name || !video_library_id || !template_id) {
@@ -85,11 +88,11 @@ export async function POST(request: Request) {
     }
 
     const demoRates = {
-      rate_22k: String(rateData?.rate_22k || "6500"),
-      rate_24k: String(rateData?.rate_24k || "7100"),
-      rate_18k: String(rateData?.rate_18k || "5300"),
-      rate_9k: String(rateData?.rate_9k || "2600"),
-      rate_silver: String(rateData?.rate_silver || "90")
+      rate_22k: pricing_mode === "manual" ? String(manual_rates?.rate_22k || "") : String(rateData?.rate_22k || "6500"),
+      rate_24k: pricing_mode === "manual" ? String(manual_rates?.rate_24k || "") : String(rateData?.rate_24k || "7100"),
+      rate_18k: pricing_mode === "manual" ? String(manual_rates?.rate_18k || "") : String(rateData?.rate_18k || "5300"),
+      rate_9k: pricing_mode === "manual" ? String(manual_rates?.rate_9k || "") : String(rateData?.rate_9k || "2600"),
+      rate_silver: pricing_mode === "manual" ? String(manual_rates?.rate_silver || "") : String(rateData?.rate_silver || "90")
     };
 
     // 1. Create demo render job
@@ -107,7 +110,8 @@ export async function POST(request: Request) {
           shop_phone: shop_phone || "",
           shop_address: shop_address || "",
           logo_url: logo_url || "",
-          rates: demoRates
+          rates: demoRates,
+          selected_rates: selected_rates || null
         },
         scheduled_at: new Date().toISOString()
       }])
