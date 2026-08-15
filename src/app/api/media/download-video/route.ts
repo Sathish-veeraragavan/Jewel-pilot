@@ -10,8 +10,16 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Missing video URL parameter" }, { status: 400 });
     }
 
+    let absoluteVideoUrl = videoUrl;
+    if (videoUrl.startsWith("/")) {
+      const host = request.headers.get("host") || "localhost:3000";
+      // Determine protocol securely
+      const protocol = host.includes("localhost") || host.includes("127.0.0.1") ? "http" : "https";
+      absoluteVideoUrl = `${protocol}://${host}${videoUrl}`;
+    }
+
     // Fetch the file from Cloudflare R2 or the remote URL
-    const response = await fetch(videoUrl);
+    const response = await fetch(absoluteVideoUrl);
     if (!response.ok) {
       throw new Error(`Failed to fetch remote video file: ${response.statusText}`);
     }

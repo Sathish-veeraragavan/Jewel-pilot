@@ -30,7 +30,7 @@ export async function generateAutoSchedules(
   // 1. Fetch active shops
   const { data: shops, error: shopsErr } = await supabase
     .from("shops")
-    .select("id, name, shop_code, district_id, state_id, status, language_id, selected_rates");
+    .select("id, name, shop_code, district_id, state_id, status, language_id, selected_rates, weekly_categories");
 
   let activeShops = (shops || []).filter(s => s.status !== "inactive" && s.status !== "suspended");
 
@@ -55,7 +55,7 @@ export async function generateAutoSchedules(
   // 2. Fetch available videos, templates, occasions, music tracks, and states
   const [{ data: videos }, { data: templates }, { data: occasions }, { data: musicTracks }, { data: states }] = await Promise.all([
     supabase.from("videos").select("id, title, usage_count, cloudflare_url, category, is_lite_weight").eq("is_active", true),
-    supabase.from("templates").select("id, name, template_type, version, placeholder_count").eq("status", "active"),
+    supabase.from("templates").select("id, name, template_type, version, placeholder_count, allowed_shop_ids").eq("status", "active"),
     supabase.from("occasions").select("id, name, start_date, end_date"),
     supabase.from("music_tracks").select("id, title").eq("is_active", true),
     supabase.from("states").select("id, name, code")
@@ -129,27 +129,59 @@ export async function generateAutoSchedules(
   const batchId = batch.id;
   logs.push(`Created schedule batch: ${batchId}`);
 
+  // Helper to format Date as YYYY-MM-DD in local time
+  const formatLocalDate = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
   // 4. Load past assignments (within last 30 days to enforce lockout history) and downloads
   const cutoffDate = new Date(options.startDate);
   cutoffDate.setDate(cutoffDate.getDate() - 30);
   const cutoffStr = cutoffDate.toISOString().split("T")[0];
 
   const [{ data: existingSchedules }, { data: existingDownloads }] = await Promise.all([
-    supabase.from("schedules").select("id, shop_id, video_id, scheduled_date").gte("scheduled_date", cutoffStr),
+    supabase.from("schedules").select(`
+      id, 
+      shop_id, 
+      video_id, 
+      scheduled_date,
+      videos:video_id (
+        category
+      )
+    `).gte("scheduled_date", cutoffStr),
     supabase.from("downloads").select("shop_id, video_id")
   ]);
 
   const shopVideoHistory = new Map<string, Set<string>>();
   const districtWeekVideoMap = new Map<string, Set<string>>();
+  const existingSchedulesSet = new Set<string>();
   
   // Track previous day's video category for each shop to prevent consecutive categories
   const shopLastCategoryMap = new Map<string, string>();
 
-  (existingSchedules || []).forEach((s) => {
+  // Determine yesterday's date relative to options.startDate
+  const startDateObj = new Date(options.startDate);
+  const yesterdayObj = new Date(startDateObj);
+  yesterdayObj.setDate(yesterdayObj.getDate() - 1);
+  const yesterdayStr = formatLocalDate(yesterdayObj);
+
+  (existingSchedules || []).forEach((s: any) => {
+    existingSchedulesSet.add(`${s.shop_id}_${s.scheduled_date}`);
     if (!shopVideoHistory.has(s.shop_id)) {
       shopVideoHistory.set(s.shop_id, new Set());
     }
     shopVideoHistory.get(s.shop_id)!.add(s.video_id);
+
+    // If this schedule record was for yesterday, initialize the shop's last category with it
+    if (s.scheduled_date === yesterdayStr) {
+      const category = s.videos?.category;
+      if (category) {
+        shopLastCategoryMap.set(s.shop_id, category);
+      }
+    }
   });
 
   (existingDownloads || []).forEach((dl) => {
@@ -170,14 +202,6 @@ export async function generateAutoSchedules(
   const newScheduleRecords: any[] = [];
   const startMs = new Date(options.startDate).getTime();
 
-  // Helper to format Date as YYYY-MM-DD in local time
-  const formatLocalDate = (d: Date) => {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
-
   // Iterate date-by-date for next 7 or 30 days
   for (let d = 0; d < daysCount; d++) {
     // Clear district week maps every 7 days to reset week-level isolation
@@ -195,6 +219,12 @@ export async function generateAutoSchedules(
     });
 
     for (const shop of activeShops) {
+      const scheduleKey = `${shop.id}_${currentDateStr}`;
+      if (existingSchedulesSet.has(scheduleKey)) {
+        // Skip since this date is already scheduled for this shop
+        continue;
+      }
+
       const shopIdx = activeShops.indexOf(shop);
       
       // Match template placeholder count with shop's selection (default to 3)
@@ -202,20 +232,43 @@ export async function generateAutoSchedules(
         ? shop.selected_rates.length 
         : 3;
       
-      const matchedTemplates = availableTemplates.filter(t => 
+      const restrictedTemplatesForShop = availableTemplates.filter((t: any) => {
+        const allowedShops = t.allowed_shop_ids;
+        return allowedShops && allowedShops.length > 0 && allowedShops.includes(shop.id);
+      });
+
+      const allowedTemplatesForShop = restrictedTemplatesForShop.length > 0
+        ? restrictedTemplatesForShop
+        : availableTemplates.filter((t: any) => !t.allowed_shop_ids || t.allowed_shop_ids.length === 0);
+
+      const matchedTemplates = allowedTemplatesForShop.filter(t => 
         t.placeholder_count === shopRequiredCount || 
         (!t.placeholder_count && shopRequiredCount === 3)
       );
 
-      const templatesToChooseFrom = matchedTemplates.length > 0 ? matchedTemplates : availableTemplates;
+      const templatesToChooseFrom = matchedTemplates.length > 0 ? matchedTemplates : allowedTemplatesForShop;
       const dayTemplate = templatesToChooseFrom[(d + shopIdx) % templatesToChooseFrom.length];
 
       const shopHistory = shopVideoHistory.get(shop.id) || new Set();
       const districtId = shop.district_id || "DIST";
       const lastCategory = shopLastCategoryMap.get(shop.id);
       
+      // Resolve custom category requested for this day of the week
+      let customCategoryRequested = false;
+      let shopCustomCategory = null;
+      if (shop.weekly_categories && typeof shop.weekly_categories === "object") {
+        const dayOfWeek = currentDateObj.getDay();
+        const daysOfWeek = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+        const dayName = daysOfWeek[dayOfWeek];
+        const customCat = shop.weekly_categories[dayName];
+        if (customCat && customCat !== "none" && customCat !== "") {
+          customCategoryRequested = true;
+          shopCustomCategory = customCat;
+        }
+      }
+
       const rotation = shopCategoryRotations.get(shop.id) || availableCategories;
-      const targetCategory = rotation[d % rotation.length];
+      const targetCategory = customCategoryRequested ? shopCustomCategory : rotation[d % rotation.length];
       
       if (!districtWeekVideoMap.has(districtId)) {
         districtWeekVideoMap.set(districtId, new Set());
@@ -234,6 +287,12 @@ export async function generateAutoSchedules(
         const isKeralaShop = shop.state_id === keralaStateId;
         const isVideoLiteWeight = !!v.is_lite_weight;
         if (isKeralaShop !== isVideoLiteWeight) return false;
+        
+        // Custom Category Filter
+        if (customCategoryRequested && v.category !== shopCustomCategory) return false;
+
+        // Strict consecutive category avoidance: avoid scheduling same category as yesterday/previous day
+        if (lastCategory && v.category === lastCategory) return false;
         
         return true;
       });
@@ -260,13 +319,25 @@ export async function generateAutoSchedules(
         });
         chosenVideo = candidates[0];
       } else {
-        // Fallback 1: Relax history lockout but preserve district week isolation & Kerala matching
-        const districtOnlyFiltered = activeVideos.filter((v) => {
+        // Fallback 1: Relax history lockout but preserve district week isolation, Kerala matching & custom category if possible
+        let districtOnlyFiltered = activeVideos.filter((v) => {
           if (districtUsedVideos.has(v.id)) return false;
           const isKeralaShop = shop.state_id === keralaStateId;
           const isVideoLiteWeight = !!v.is_lite_weight;
-          return isKeralaShop === isVideoLiteWeight;
+          if (isKeralaShop !== isVideoLiteWeight) return false;
+          if (customCategoryRequested && v.category !== shopCustomCategory) return false;
+          return true;
         });
+
+        if (districtOnlyFiltered.length === 0 && customCategoryRequested) {
+          // Relax custom category condition if no videos match it with district constraint
+          districtOnlyFiltered = activeVideos.filter((v) => {
+            if (districtUsedVideos.has(v.id)) return false;
+            const isKeralaShop = shop.state_id === keralaStateId;
+            const isVideoLiteWeight = !!v.is_lite_weight;
+            return isKeralaShop === isVideoLiteWeight;
+          });
+        }
 
         if (districtOnlyFiltered.length > 0) {
           districtOnlyFiltered.sort((a, b) => {
@@ -281,12 +352,23 @@ export async function generateAutoSchedules(
           chosenVideo = districtOnlyFiltered[0];
           logs.push(`Relaxed history lockout for shop "${shop.name}" to prevent lockup.`);
         } else {
-          // Fallback 2: Worst case, select lowest overall usage video (filtered to Kerala state preference)
-          const allSorted = activeVideos.filter((v) => {
+          // Fallback 2: Relax district isolation but preserve Kerala matching & custom category if possible
+          let allSorted = activeVideos.filter((v) => {
             const isKeralaShop = shop.state_id === keralaStateId;
             const isVideoLiteWeight = !!v.is_lite_weight;
-            return isKeralaShop === isVideoLiteWeight;
+            if (isKeralaShop !== isVideoLiteWeight) return false;
+            if (customCategoryRequested && v.category !== shopCustomCategory) return false;
+            return true;
           });
+
+          if (allSorted.length === 0 && customCategoryRequested) {
+            // Relax custom category
+            allSorted = activeVideos.filter((v) => {
+              const isKeralaShop = shop.state_id === keralaStateId;
+              const isVideoLiteWeight = !!v.is_lite_weight;
+              return isKeralaShop === isVideoLiteWeight;
+            });
+          }
 
           if (allSorted.length > 0) {
             allSorted.sort((a, b) => {

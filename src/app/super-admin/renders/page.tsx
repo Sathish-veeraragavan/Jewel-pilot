@@ -12,7 +12,7 @@ import {
   SearchBar,
   StatusBadge
 } from "@/components/ui/reusable";
-import { Activity, Play, Pause, RotateCcw, XCircle, FileText, Plus, Search, ShieldAlert } from "lucide-react";
+import { Activity, Play, Pause, RotateCcw, XCircle, FileText, Plus, Search, ShieldAlert, Eye } from "lucide-react";
 
 export default function RendersQueuePage() {
   const [loading, setLoading] = useState(true);
@@ -266,6 +266,17 @@ export default function RendersQueuePage() {
                   >
                     <FileText className="w-4 h-4" />
                   </button>
+                  {job.status === "Completed" && job.rendered_video_url && (
+                    <a 
+                      href={job.rendered_video_url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-purple-600 hover:text-purple-800 p-1"
+                      title="Preview rendered video"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </a>
+                  )}
                   {job.status === "Failed" && (
                     <button 
                       onClick={() => handleUpdateStatus(job.id, "Pending")}
@@ -275,11 +286,11 @@ export default function RendersQueuePage() {
                       <RotateCcw className="w-4 h-4" />
                     </button>
                   )}
-                  {job.status === "Pending" && (
+                  {(job.status === "Pending" || job.status === "Processing" || job.status === "Retrying") && (
                     <button 
                       onClick={() => handleUpdateStatus(job.id, "Cancelled")}
                       className="text-red-550 hover:text-red-700 p-1"
-                      title="Cancel job"
+                      title={job.status === "Processing" ? "Force kill/cancel job" : "Cancel job"}
                     >
                       <XCircle className="w-4 h-4" />
                     </button>

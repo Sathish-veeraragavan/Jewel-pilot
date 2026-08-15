@@ -44,6 +44,7 @@ export async function middleware(request: NextRequest) {
       const url = request.nextUrl.clone();
       if (role === "super_admin") url.pathname = "/super-admin";
       else if (role === "admin") url.pathname = "/admin";
+      else if (role === "sales") url.pathname = "/sales";
       else url.pathname = "/shop";
       return NextResponse.redirect(url);
     }

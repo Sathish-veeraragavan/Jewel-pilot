@@ -30,7 +30,7 @@ export async function PUT(request: Request) {
 
   try {
     const body = await request.json();
-    let { shopId, subscriptionId, startDate, endDate, subStatus, shopStatus, name, phone, address, owner_phone } = body;
+    let { shopId, subscriptionId, startDate, endDate, subStatus, shopStatus, name, phone, address, owner_phone, association_id, allowed_metals, weekly_categories } = body;
 
     if (!shopId) {
       return NextResponse.json({ error: "Missing shopId" }, { status: 400 });
@@ -65,6 +65,7 @@ export async function PUT(request: Request) {
     if (endDate && endDate < todayStr) {
       effectiveSubStatus = "expired";
       effectiveShopStatus = "inactive";
+      
     }
 
     // 1. Update shop status and metadata fields if provided
@@ -73,6 +74,9 @@ export async function PUT(request: Request) {
     if (phone !== undefined) shopUpdatePayload.phone = phone;
     if (owner_phone !== undefined) shopUpdatePayload.owner_phone = owner_phone;
     if (address !== undefined) shopUpdatePayload.address = address;
+    if (association_id !== undefined) shopUpdatePayload.association_id = association_id;
+    if (allowed_metals !== undefined) shopUpdatePayload.allowed_metals = allowed_metals;
+    if (weekly_categories !== undefined) shopUpdatePayload.weekly_categories = weekly_categories;
 
     const { error: shopErr } = await supabaseAdmin
       .from("shops")

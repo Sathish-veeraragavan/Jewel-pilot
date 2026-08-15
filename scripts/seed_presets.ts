@@ -40,7 +40,9 @@ async function run() {
     { filePath: path.resolve(presetsDir, "bracket_green_gold.png"), name: "bracket_green_gold.png" },
     { filePath: path.resolve(presetsDir, "bracket_maroon_gold.png"), name: "bracket_maroon_gold.png" },
     { filePath: path.resolve(presetsDir, "gold_purity_banner.png"), name: "gold_purity_banner.png" },
-    { filePath: path.resolve(presetsDir, "elegant_gold_divider.png"), name: "elegant_gold_divider.png" }
+    { filePath: path.resolve(presetsDir, "elegant_gold_divider.png"), name: "elegant_gold_divider.png" },
+    { filePath: path.resolve(presetsDir, "whatsapp_green.svg"), name: "whatsapp_green.svg" },
+    { filePath: path.resolve(presetsDir, "whatsapp_white.svg"), name: "whatsapp_white.svg" }
   ];
 
   console.log("Seeding preset icons/shapes into R2 bucket...");
@@ -53,7 +55,8 @@ async function run() {
 
     try {
       const buffer = fs.readFileSync(file.filePath);
-      const url = await uploadToR2(buffer, file.name, "image/png", "template-icons");
+      const contentType = file.name.endsWith(".svg") ? "image/svg+xml" : "image/png";
+      const url = await uploadToR2(buffer, file.name, contentType, "template-icons");
       console.log(`Uploaded preset ${file.name} successfully -> ${url}`);
     } catch (err) {
       console.error(`Failed to upload ${file.name}:`, err);

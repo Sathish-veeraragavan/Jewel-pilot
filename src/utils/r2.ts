@@ -46,7 +46,8 @@ export async function uploadToR2(
   fileBuffer: Buffer, 
   fileName: string, 
   contentType: string = "video/mp4",
-  prefix: string = "ASSET"
+  prefix: string = "ASSET",
+  category?: string
 ): Promise<string> {
   const r2 = getR2Client();
   const bucketName = process.env.R2_BUCKET_NAME || "jewelry-assets";
@@ -88,8 +89,14 @@ export async function uploadToR2(
         // Ignored if file does not exist
       }
     }
+  } else if (prefix === "renders") {
+    key = `renders/${fileName}`;
   } else {
-    key = `videos/${prefix}.mp4`;
+    if (category) {
+      key = `videos/${category}/${prefix}.mp4`;
+    } else {
+      key = `videos/${prefix}.mp4`;
+    }
   }
 
   if (!r2) {
@@ -182,7 +189,8 @@ export async function checkR2ObjectExists(keyPath: string): Promise<boolean> {
 export async function initiateR2MultipartUpload(
   fileName: string,
   contentType: string = "video/mp4",
-  prefix: string = "ASSET"
+  prefix: string = "ASSET",
+  category?: string
 ): Promise<{ uploadId: string; key: string }> {
   const r2 = getR2Client();
   const bucketName = process.env.R2_BUCKET_NAME || "jewelry-assets";
@@ -209,7 +217,11 @@ export async function initiateR2MultipartUpload(
     const ext = (contentType === "image/png" || fileName.toLowerCase().endsWith(".png")) ? "png" : "webp";
     key = `logos/${cleanCode}_logo.${ext}`;
   } else {
-    key = `videos/${prefix}.mp4`;
+    if (category) {
+      key = `videos/${category}/${prefix}.mp4`;
+    } else {
+      key = `videos/${prefix}.mp4`;
+    }
   }
 
   const res = await r2.send(
@@ -276,7 +288,8 @@ export async function completeR2MultipartUpload(
 export async function getR2PresignedUploadUrl(
   fileName: string,
   contentType: string = "video/mp4",
-  prefix: string = "ASSET"
+  prefix: string = "ASSET",
+  category?: string
 ): Promise<{ url: string; key: string; publicUrl: string }> {
   const r2 = getR2Client();
   const bucketName = process.env.R2_BUCKET_NAME || "jewelry-assets";
@@ -305,7 +318,11 @@ export async function getR2PresignedUploadUrl(
   } else if (prefix === "renders") {
     key = `renders/${fileName}`;
   } else {
-    key = `videos/${prefix}.mp4`;
+    if (category) {
+      key = `videos/${category}/${prefix}.mp4`;
+    } else {
+      key = `videos/${prefix}.mp4`;
+    }
   }
 
   // Use dedicated presign client that strips the CRC32 checksum headers
@@ -333,4 +350,28 @@ export async function getR2PresignedUploadUrl(
     key,
     publicUrl
   };
+}
+
+export async function createR2FolderPlaceholder(folderName: string): Promise<boolean> {
+  const r2 = getR2Client();
+  const bucketName = process.env.R2_BUCKET_NAME || "jewelry-assets";
+  if (!r2) return false;
+
+  // Key for directory placeholder
+  const key = `videos/${folderName}/`;
+
+  try {
+    await r2.send(
+      new PutObjectCommand({
+        Bucket: bucketName,
+        Key: key,
+        Body: Buffer.alloc(0),
+        ContentType: "application/x-directory",
+      })
+    );
+    return true;
+  } catch (err) {
+    console.error(`Failed to create R2 folder placeholder videos/${folderName}/`, err);
+    return false;
+  }
 }

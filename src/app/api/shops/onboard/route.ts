@@ -32,8 +32,8 @@ export async function POST(request: Request) {
     callerRole = profile?.role;
   }
 
-  if (callerRole !== "super_admin" && callerRole !== "admin") {
-    return NextResponse.json({ error: "Forbidden - Admin access required" }, { status: 403 });
+  if (callerRole !== "super_admin" && callerRole !== "admin" && callerRole !== "sales") {
+    return NextResponse.json({ error: "Forbidden - Admin or Sales access required" }, { status: 403 });
   }
 
   try {
@@ -56,7 +56,8 @@ export async function POST(request: Request) {
       end_date,
       selected_rates,
       association_id,
-      owner_phone
+      owner_phone,
+      allowed_metals
     } = body;
 
     // Validation
@@ -201,7 +202,8 @@ export async function POST(request: Request) {
         assigned_sales_admin_id: user.id,
         created_by: user.id,
         selected_rates: selected_rates || ['rate_22k_1g', 'rate_22k_8g', 'rate_silver_1g'],
-        association_id: association_id || null
+        association_id: association_id || null,
+        allowed_metals: allowed_metals || null
       }])
       .select()
       .single();

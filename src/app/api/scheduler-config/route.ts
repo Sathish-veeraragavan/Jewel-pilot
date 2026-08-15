@@ -59,7 +59,7 @@ export async function GET(request: Request) {
       const endDate = formatYMD(endObj);
 
       const [{ data: shops }, { data: schedules, error: schedErr }, { data: videos }, { data: templates }, { data: musicTracks }, { data: outroSettings }] = await Promise.all([
-        supabaseAdmin.from("shops").select("id, name, shop_code, district_id, status").neq("status", "inactive"),
+        supabaseAdmin.from("shops").select("id, name, shop_code, district_id, status, association_id").neq("status", "inactive"),
         supabaseAdmin.from("schedules").select(`
           id, shop_id, video_id, template_id, occasion_id, audio_track_id, scheduled_date, status, download_status,
           videos(id, title, category),
@@ -71,7 +71,7 @@ export async function GET(request: Request) {
         .lte("scheduled_date", endDate)
         .order("scheduled_date", { ascending: true }),
         supabaseAdmin.from("videos").select("id, title, category").eq("is_active", true),
-        supabaseAdmin.from("templates").select("id, name, template_type, outro_url").eq("status", "active"),
+        supabaseAdmin.from("templates").select("id, name, template_type, outro_url, allowed_shop_ids").eq("status", "active"),
         supabaseAdmin.from("music_tracks").select("id, title").eq("is_active", true),
         supabaseAdmin.from("system_settings").select("setting_key, value").like("setting_key", "outro_video_%")
       ]);

@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
-  role: "super_admin" | "admin" | "shop_user";
+  role: "super_admin" | "admin" | "shop_user" | "sales";
   title: string;
 }
 
@@ -17,7 +17,7 @@ export default function DashboardLayout({ children, role, title }: DashboardLayo
   const supabase = createClient();
   const [userName, setUserName] = useState<string>("Loading...");
   const [userEmail, setUserEmail] = useState<string>("");
-  const [userRole, setUserRole] = useState<"super_admin" | "admin" | "shop_user">(role);
+  const [userRole, setUserRole] = useState<"super_admin" | "admin" | "shop_user" | "sales">(role);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {

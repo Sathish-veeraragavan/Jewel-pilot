@@ -77,7 +77,7 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { name, bg_image_url, outro_url, preview_url, config, template_type, version, status, placeholder_count, occasion_id } = body;
+    const { name, bg_image_url, outro_url, preview_url, config, template_type, version, status, placeholder_count, occasion_id, allowed_shop_ids } = body;
 
     if (!name || !config) {
       return NextResponse.json({ error: "Missing required fields (name, config)" }, { status: 400 });
@@ -103,7 +103,8 @@ export async function POST(request: Request) {
         version: version || "1.0.0",
         status: status || "active",
         placeholder_count: calculatedCount,
-        occasion_id: occasion_id || null
+        occasion_id: occasion_id || null,
+        allowed_shop_ids: allowed_shop_ids || null
       }])
       .select()
       .single();
@@ -127,7 +128,7 @@ export async function PUT(request: Request) {
 
   try {
     const body = await request.json();
-    const { id, name, bg_image_url, outro_url, preview_url, config, template_type, version, status, placeholder_count, occasion_id, saveAsNewVersion } = body;
+    const { id, name, bg_image_url, outro_url, preview_url, config, template_type, version, status, placeholder_count, occasion_id, allowed_shop_ids, saveAsNewVersion } = body;
 
     if (config && !validateConfig(config)) {
       return NextResponse.json({ error: "Invalid JSON configuration." }, { status: 400 });
@@ -150,7 +151,8 @@ export async function PUT(request: Request) {
           version: version || "1.0.0",
           status: status || "active",
           placeholder_count: calculatedCount,
-          occasion_id: occasion_id || null
+          occasion_id: occasion_id || null,
+          allowed_shop_ids: allowed_shop_ids || null
         }])
         .select()
         .single();
@@ -171,6 +173,7 @@ export async function PUT(request: Request) {
       if (version !== undefined) updatePayload.version = version || "1.0.0";
       if (status !== undefined) updatePayload.status = status || "active";
       if (occasion_id !== undefined) updatePayload.occasion_id = occasion_id || null;
+      if (allowed_shop_ids !== undefined) updatePayload.allowed_shop_ids = allowed_shop_ids || null;
 
       const { data, error } = await supabaseAdmin
         .from("templates")

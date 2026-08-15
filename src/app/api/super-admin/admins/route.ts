@@ -35,14 +35,14 @@ export async function GET(request: Request) {
     const { data: admins, error } = await supabaseAdmin
       .from("profiles")
       .select("id, name, email, role, status, created_at")
-      .eq("role", "admin")
+      .in("role", ["admin", "sales"])
       .order("created_at", { ascending: false });
 
     if (error) throw error;
     return NextResponse.json(admins);
   } catch (err: any) {
     console.error("GET /api/super-admin/admins error:", err);
-    return NextResponse.json({ error: err.message || "Failed to fetch sales admins" }, { status: 500 });
+    return NextResponse.json({ error: err.message || "Failed to fetch sales admins/partners" }, { status: 500 });
   }
 }
 
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { email, password, name } = body;
+    const { email, password, name, role = "admin" } = body;
 
     if (!email || !password || !name) {
       return NextResponse.json({ error: "Missing required fields (name, email, password)" }, { status: 400 });
@@ -67,8 +67,8 @@ export async function POST(request: Request) {
       email,
       password,
       email_confirm: true,
-      user_metadata: { name, role: "admin" },
-      app_metadata: { role: "admin" }
+      user_metadata: { name, role },
+      app_metadata: { role }
     });
 
     if (authError || !authUser.user) {
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
         id: authUser.user.id,
         name,
         email,
-        role: "admin",
+        role,
         status: "active"
       })
       .select()
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, admin: profile });
   } catch (err: any) {
     console.error("POST /api/super-admin/admins error:", err);
-    return NextResponse.json({ error: err.message || "Failed to create sales admin" }, { status: 500 });
+    return NextResponse.json({ error: err.message || "Failed to create sales partner/admin" }, { status: 500 });
   }
 }
 

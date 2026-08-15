@@ -10,15 +10,34 @@ const getAdminSupabase = () => {
   );
 };
 
-// Category code prefix mapping
-const CATEGORY_PREFIXES: Record<string, string> = {
-  "Necklace": "NC",
-  "Bracelets/Bangles": "BG",
-  "Rings": "RG",
-  "Earrings": "ER",
-  "Ankle Chains": "AC",
-  "Chains": "CH"
-};
+// Dynamic category code prefix mapping helper
+async function getCategoryPrefixes(supabaseAdmin: any): Promise<Record<string, string>> {
+  try {
+    const { data: dbCategories, error } = await supabaseAdmin
+      .from("video_categories")
+      .select("name, code");
+    
+    if (!error && dbCategories && dbCategories.length > 0) {
+      const prefixes: Record<string, string> = {};
+      dbCategories.forEach((c: { name: string; code: string }) => {
+        prefixes[c.name] = c.code;
+      });
+      return prefixes;
+    }
+  } catch (e) {
+    console.error("Failed to load category prefixes from database:", e);
+  }
+
+  // Fallback to defaults
+  return {
+    "Necklace": "NC",
+    "Bracelets/Bangles": "BG",
+    "Rings": "RG",
+    "Earrings": "ER",
+    "Ankle Chains": "AC",
+    "Chains": "CH"
+  };
+}
 
 export async function GET(request: Request) {
   const supabaseAdmin = getAdminSupabase();
@@ -70,7 +89,12 @@ export async function POST(request: Request) {
           if (vid.cloudflare_url) {
             const exists = await checkR2ObjectExists(vid.cloudflare_url);
             if (!exists) {
-              // Delete dependent schedules first to avoid foreign key restrict error
+              // Delete dependent downloads and schedules first to avoid foreign key restrict error
+              const { data: scheds } = await supabaseAdmin.from("schedules").select("id").eq("video_id", vid.id);
+              if (scheds && scheds.length > 0) {
+                const schedIds = scheds.map(s => s.id);
+                await supabaseAdmin.from("downloads").delete().in("schedule_id", schedIds);
+              }
               await supabaseAdmin.from("schedules").delete().eq("video_id", vid.id);
               await supabaseAdmin.from("videos").delete().eq("id", vid.id);
               purgedIds.push(vid.id);
@@ -82,13 +106,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, purgedCount: purgedIds.length, purgedIds });
     }
 
+    const categoryPrefixes = await getCategoryPrefixes(supabaseAdmin);
+
     // Action 2: Generate next available unique 2-character video code (e.g. NC-0001)
     if (action === "generate_code") {
-      if (!category || !CATEGORY_PREFIXES[category]) {
-        return NextResponse.json({ error: "Invalid category. Select from: Necklace, Bracelets/Bangles, Rings, Earrings, Ankle Chains, Chains" }, { status: 400 });
+      if (!category || !categoryPrefixes[category]) {
+        const allowedCats = Object.keys(categoryPrefixes).join(", ");
+        return NextResponse.json({ error: `Invalid category. Select from: ${allowedCats}` }, { status: 400 });
       }
 
-      const prefix = CATEGORY_PREFIXES[category];
+      const prefix = categoryPrefixes[category];
       const { data: existingVideos } = await supabaseAdmin
         .from("videos")
         .select("title")
@@ -107,11 +134,12 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Missing required fields (title, category, cloudflare_url)" }, { status: 400 });
       }
 
-      if (!CATEGORY_PREFIXES[category]) {
-        return NextResponse.json({ error: "Invalid category. Must be one of: Necklace, Bracelets/Bangles, Rings, Earrings, Ankle Chains, Chains" }, { status: 400 });
+      if (!categoryPrefixes[category]) {
+        const allowedCats = Object.keys(categoryPrefixes).join(", ");
+        return NextResponse.json({ error: `Invalid category. Must be one of: ${allowedCats}` }, { status: 400 });
       }
 
-      const prefix = CATEGORY_PREFIXES[category];
+      const prefix = categoryPrefixes[category];
       const { data: existingVideos } = await supabaseAdmin
         .from("videos")
         .select("id")
@@ -204,13 +232,28 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Missing video id parameter" }, { status: 400 });
     }
 
-    // 1. Delete dependent schedules first to avoid foreign key restrict error
+    // 1. Fetch all schedules for this video first
+    const { data: schedules } = await supabaseAdmin
+      .from("schedules")
+      .select("id")
+      .eq("video_id", id);
+
+    // 2. Delete all downloads pointing to these schedules
+    if (schedules && schedules.length > 0) {
+      const scheduleIds = schedules.map((s) => s.id);
+      await supabaseAdmin
+        .from("downloads")
+        .delete()
+        .in("schedule_id", scheduleIds);
+    }
+
+    // 3. Delete dependent schedules
     await supabaseAdmin
       .from("schedules")
       .delete()
       .eq("video_id", id);
 
-    // 2. Fetch video details to get cloudflare_url
+    // 4. Fetch video details to get cloudflare_url
     const { data: video } = await supabaseAdmin
       .from("videos")
       .select("cloudflare_url")
@@ -218,11 +261,11 @@ export async function DELETE(request: Request) {
       .maybeSingle();
 
     if (video?.cloudflare_url) {
-      // 3. Delete file from Cloudflare R2
+      // 5. Delete file from Cloudflare R2
       await deleteFromR2(video.cloudflare_url);
     }
 
-    // 4. Delete record from Supabase videos table
+    // 6. Delete record from Supabase videos table
     const { error } = await supabaseAdmin
       .from("videos")
       .delete()

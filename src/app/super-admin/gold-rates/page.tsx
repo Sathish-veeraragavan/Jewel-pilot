@@ -37,6 +37,14 @@ export default function CommodityRatesPage() {
   const [states, setStates] = useState<any[]>([]);
   const [newAssocName, setNewAssocName] = useState("");
   const [newAssocStateId, setNewAssocStateId] = useState("");
+  const [newAssocAllowedMetals, setNewAssocAllowedMetals] = useState<string[]>(["24k", "22k", "18k", "9k", "silver"]);
+
+  // Editing Association state
+  const [editingAssocId, setEditingAssocId] = useState("");
+  const [editingAssocName, setEditingAssocName] = useState("");
+  const [editingAssocStateId, setEditingAssocStateId] = useState("");
+  const [editingAssocAllowedMetals, setEditingAssocAllowedMetals] = useState<string[]>([]);
+  const [editingAssocSaving, setEditingAssocSaving] = useState(false);
 
   // History list state
   const [historyList, setHistoryList] = useState<any[]>([]);
@@ -229,7 +237,11 @@ export default function CommodityRatesPage() {
       const res = await fetch("/api/associations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newAssocName, state_id: newAssocStateId })
+        body: JSON.stringify({ 
+          name: newAssocName, 
+          state_id: newAssocStateId,
+          allowed_metals: newAssocAllowedMetals
+        })
       });
       const data = await res.json();
       if (data.error) {
@@ -237,12 +249,45 @@ export default function CommodityRatesPage() {
       } else {
         alert(`Association "${newAssocName}" created successfully!`);
         setNewAssocName("");
+        setNewAssocAllowedMetals(["24k", "22k", "18k", "9k", "silver"]);
         fetchAssociations();
       }
     } catch (err) {
       alert("Failed to create association.");
     } finally {
       setAssocSubmitting(false);
+    }
+  };
+
+  const handleUpdateAssociation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAssocId || !editingAssocName || !editingAssocStateId) {
+      alert("Please select an association, enter a name, and select a state.");
+      return;
+    }
+    setEditingAssocSaving(true);
+    try {
+      const res = await fetch("/api/associations", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingAssocId,
+          name: editingAssocName,
+          state_id: editingAssocStateId,
+          allowed_metals: editingAssocAllowedMetals
+        })
+      });
+      const data = await res.json();
+      if (data.error) {
+        alert(data.error);
+      } else {
+        alert(`Association "${editingAssocName}" updated successfully!`);
+        fetchAssociations();
+      }
+    } catch (err) {
+      alert("Failed to update association.");
+    } finally {
+      setEditingAssocSaving(false);
     }
   };
 
@@ -454,6 +499,31 @@ export default function CommodityRatesPage() {
                 onChange={(e) => setNewAssocStateId(e.target.value)}
                 options={states.map((s) => ({ label: s.name, value: s.id }))}
               />
+              <div className="space-y-1.5">
+                <span className="text-[11px] font-bold text-slate-700">Allowed Metal Types</span>
+                <div className="flex flex-wrap gap-2">
+                  {["24k", "22k", "18k", "9k", "silver"].map((m) => {
+                    const isChecked = newAssocAllowedMetals.includes(m);
+                    return (
+                      <label key={m} className="flex items-center space-x-1.5 text-xs bg-slate-50 border border-slate-200 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-slate-100/50">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {
+                            if (isChecked) {
+                              setNewAssocAllowedMetals(newAssocAllowedMetals.filter((x) => x !== m));
+                            } else {
+                              setNewAssocAllowedMetals([...newAssocAllowedMetals, m]);
+                            }
+                          }}
+                          className="rounded text-accent focus:ring-accent w-3.5 h-3.5"
+                        />
+                        <span className="font-extrabold text-[10px] uppercase text-primary">{m}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
               <Button
                 type="submit"
                 className="w-full justify-center"
@@ -462,6 +532,84 @@ export default function CommodityRatesPage() {
                 {assocSubmitting ? "Creating..." : "Create Association"}
               </Button>
             </form>
+          </div>
+
+          {/* Manage Associations Sub-Panel */}
+          <div className="bg-white p-6 rounded-2xl border border-border shadow-sm space-y-4">
+            <div className="border-b border-slate-100 pb-2">
+              <h4 className="font-bold text-xs text-primary uppercase tracking-wider">Manage Associations</h4>
+              <p className="text-[10px] text-slate-400">Edit existing regional/state bodies.</p>
+            </div>
+            <div className="space-y-3">
+              <Select
+                label="Select Association to Edit"
+                value={editingAssocId}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setEditingAssocId(val);
+                  const selected = associations.find((a) => a.id === val);
+                  if (selected) {
+                    setEditingAssocName(selected.name);
+                    setEditingAssocStateId(selected.state_id || "");
+                    setEditingAssocAllowedMetals(selected.allowed_metals || ["24k", "22k", "18k", "9k", "silver"]);
+                  } else {
+                    setEditingAssocName("");
+                    setEditingAssocStateId("");
+                    setEditingAssocAllowedMetals([]);
+                  }
+                }}
+                options={[{ label: "-- Choose Association --", value: "" }, ...associations.map((a) => ({ label: a.name, value: a.id }))]}
+              />
+
+              {editingAssocId && (
+                <form onSubmit={handleUpdateAssociation} className="space-y-3 border-t border-slate-100 pt-3">
+                  <Input
+                    label="Association Name"
+                    value={editingAssocName}
+                    onChange={(e) => setEditingAssocName(e.target.value)}
+                    required
+                  />
+                  <Select
+                    label="Linked State"
+                    value={editingAssocStateId}
+                    onChange={(e) => setEditingAssocStateId(e.target.value)}
+                    options={states.map((s) => ({ label: s.name, value: s.id }))}
+                  />
+                  <div className="space-y-1.5">
+                    <span className="text-[11px] font-bold text-slate-700">Allowed Metal Types</span>
+                    <div className="flex flex-wrap gap-2">
+                      {["24k", "22k", "18k", "9k", "silver"].map((m) => {
+                        const isChecked = editingAssocAllowedMetals.includes(m);
+                        return (
+                          <label key={m} className="flex items-center space-x-1.5 text-xs bg-slate-50 border border-slate-200 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-slate-100/50">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {
+                                if (isChecked) {
+                                  setEditingAssocAllowedMetals(editingAssocAllowedMetals.filter((x) => x !== m));
+                                } else {
+                                  setEditingAssocAllowedMetals([...editingAssocAllowedMetals, m]);
+                                }
+                              }}
+                              className="rounded text-accent focus:ring-accent w-3.5 h-3.5"
+                            />
+                            <span className="font-extrabold text-[10px] uppercase text-primary">{m}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <Button
+                    type="submit"
+                    className="w-full justify-center"
+                    disabled={editingAssocSaving}
+                  >
+                    {editingAssocSaving ? "Saving..." : "Save Changes"}
+                  </Button>
+                </form>
+              )}
+            </div>
           </div>
 
           </div>

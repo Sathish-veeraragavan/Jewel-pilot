@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
-import { getR2PresignedUploadUrl } from "@/utils/r2";
+import { getR2PresignedUploadUrl, deleteFromR2 } from "@/utils/r2";
 
 const getAdminSupabase = () => {
   return createSupabaseClient(
@@ -49,6 +49,23 @@ export async function GET(request: Request) {
       return NextResponse.json(logs);
     }
 
+    if (jobId) {
+      const { data: job, error: jobErr } = await supabaseAdmin
+        .from("render_jobs")
+        .select(`
+          id, job_number, status, priority, scheduled_at, started_at, completed_at, 
+          rendered_video_url, worker_id, retry_count, error_message, is_demo, demo_metadata,
+          shops(name),
+          templates(name),
+          videos(title)
+        `)
+        .eq("id", jobId)
+        .maybeSingle();
+
+      if (jobErr) throw jobErr;
+      return NextResponse.json(job);
+    }
+
     // Default: fetch all jobs with joins (limit fields)
     const { data: jobs, error: jobsErr } = await supabaseAdmin
       .from("render_jobs")
@@ -88,6 +105,41 @@ export async function POST(request: Request) {
     if (action === "dequeue") {
       if (!worker_id) {
         return NextResponse.json({ error: "Missing worker_id" }, { status: 400 });
+      }
+ 
+      // Perform automated R2 cleanup of expired render outputs
+      try {
+        const { data: retentionSetting } = await supabaseAdmin
+          .from("system_settings")
+          .select("value")
+          .eq("setting_key", "render_retention_hours")
+          .maybeSingle();
+        
+        const retentionHours = Number(retentionSetting?.value || 24);
+        const retentionLimit = new Date();
+        retentionLimit.setHours(retentionLimit.getHours() - retentionHours);
+ 
+        const { data: expiredJobs } = await supabaseAdmin
+          .from("render_jobs")
+          .select("id, rendered_video_url")
+          .eq("status", "Completed")
+          .not("rendered_video_url", "is", null)
+          .lt("completed_at", retentionLimit.toISOString())
+          .limit(5);
+ 
+        if (expiredJobs && expiredJobs.length > 0) {
+          for (const job of expiredJobs) {
+            if (job.rendered_video_url) {
+              await deleteFromR2(job.rendered_video_url);
+              await supabaseAdmin
+                .from("render_jobs")
+                .update({ rendered_video_url: null })
+                .eq("id", job.id);
+            }
+          }
+        }
+      } catch (cleanupErr) {
+        console.error("Automated R2 retention cleanup error:", cleanupErr);
       }
 
       // Fetch top Pending/Queued/Retrying job from queue table (sorted by priority desc, position asc)
@@ -221,69 +273,145 @@ export async function POST(request: Request) {
       const { data: jobDetails } = await supabaseAdmin
         .from("render_jobs")
         .select(`
-          id, shop_id, template_id, video_library_id, occasion_id, commodity_rate_id, scheduled_at
+          id, shop_id, template_id, video_library_id, occasion_id, commodity_rate_id, scheduled_at, is_demo, demo_metadata
         `)
         .eq("id", jobId)
         .single();
-
+ 
       if (!jobDetails) {
         return NextResponse.json({ error: "Failed to load job details" }, { status: 500 });
       }
+ 
+      // 1. Resolve demo vs normal details
+      if (jobDetails.is_demo && (jobDetails.demo_metadata as any)?.is_rotation) {
+        const demoMeta: any = jobDetails.demo_metadata || {};
+        let presignedUploadUrl = "";
+        let r2PublicUrl = "";
+        try {
+          const presignedData = await getR2PresignedUploadUrl(`${jobDetails.id}_final.mp4`, "video/mp4", "renders");
+          if (presignedData) {
+            presignedUploadUrl = presignedData.url;
+            r2PublicUrl = presignedData.publicUrl;
+          }
+        } catch (presignedErr) {
+          console.error("Failed to generate presigned R2 upload URL for rotation:", presignedErr);
+        }
 
-      // 1. Fetch associated schedule date and occasion
-      let targetDateStr = null;
-      if (jobDetails.scheduled_at) {
-        targetDateStr = jobDetails.scheduled_at.split("T")[0];
+        return NextResponse.json({
+          id: jobDetails.id,
+          is_rotation: true,
+          angle: demoMeta.angle || "90_cw",
+          source_video_url: demoMeta.source_video_url,
+          presigned_upload_url: presignedUploadUrl,
+          r2_public_url: r2PublicUrl,
+          vps_cleanup_time: cleanupTime,
+          render_retention_hours: retentionHours
+        });
       }
 
-      let scheduleQuery = supabaseAdmin
-        .from("schedules")
-        .select(`
-          scheduled_date,
-          audio_track_id,
-          music_tracks:audio_track_id(cloudflare_url),
-          occasions(name)
-        `)
-        .eq("shop_id", jobDetails.shop_id)
-        .eq("video_id", jobDetails.video_library_id)
-        .eq("template_id", jobDetails.template_id);
+      let shop: any = null;
+      let goldRate: any = null;
+      let scheduledDate = new Date().toISOString().split("T")[0];
+      let languageName = "english";
+      let schedule: any = null;
+      let shopAssocId = null;
 
-      if (targetDateStr) {
-        scheduleQuery = scheduleQuery.eq("scheduled_date", targetDateStr);
+      if (jobDetails.is_demo) {
+        const demoMeta: any = jobDetails.demo_metadata || {};
+        shop = {
+          name: demoMeta.shop_name || "Demo Shop",
+          phone: demoMeta.shop_phone || "9999999999",
+          address: demoMeta.shop_address || "Demo Address",
+          city: "Demo City",
+          logo_url: demoMeta.logo_url || "",
+          qr_code_url: demoMeta.qr_code_url || null,
+          language_id: null,
+          selected_rates: ["rate_22k_1g", "rate_22k_8g", "rate_silver_1g"],
+          association_id: null,
+          pricing_mode: "custom_manual",
+          discount_type: null,
+          discount_value: null,
+          metal_discounts: null,
+          custom_rates: demoMeta.rates || {},
+          use_regional_rate_labels: false
+        };
+
+        goldRate = {
+          rate_22k: demoMeta.rates?.rate_22k || "6500",
+          rate_24k: demoMeta.rates?.rate_24k || "7100",
+          rate_18k: demoMeta.rates?.rate_18k || "5300",
+          rate_9k: demoMeta.rates?.rate_9k || "2600",
+          rate_silver: demoMeta.rates?.rate_silver || "90"
+        };
       } else {
-        scheduleQuery = scheduleQuery.order("scheduled_date", { ascending: false });
-      }
-
-      const { data: schedule } = await scheduleQuery
-        .limit(1)
-        .maybeSingle();
-
-      const scheduledDate = schedule?.scheduled_date || new Date().toISOString().split("T")[0];
-
-      // Sync schedule status to processing
-      if (jobCheck) {
-        await supabaseAdmin
+        // Normal Flow
+        let targetDateStr = null;
+        if (jobDetails.scheduled_at) {
+          targetDateStr = jobDetails.scheduled_at.split("T")[0];
+        }
+ 
+        let scheduleQuery = supabaseAdmin
           .from("schedules")
-          .update({ render_status: "processing" })
-          .eq("shop_id", jobCheck.shop_id)
-          .eq("template_id", jobCheck.template_id)
-          .eq("video_id", jobCheck.video_library_id)
-          .eq("scheduled_date", scheduledDate);
+          .select(`
+            scheduled_date,
+            audio_track_id,
+            music_tracks:audio_track_id(cloudflare_url),
+            occasions(name)
+          `)
+          .eq("shop_id", jobDetails.shop_id)
+          .eq("video_id", jobDetails.video_library_id)
+          .eq("template_id", jobDetails.template_id);
+ 
+        if (targetDateStr) {
+          scheduleQuery = scheduleQuery.eq("scheduled_date", targetDateStr);
+        } else {
+          scheduleQuery = scheduleQuery.order("scheduled_date", { ascending: false });
+        }
+ 
+        const { data: scheduleData } = await scheduleQuery
+          .limit(1)
+          .maybeSingle();
+ 
+        schedule = scheduleData;
+        scheduledDate = schedule?.scheduled_date || new Date().toISOString().split("T")[0];
+ 
+        // Sync schedule status to processing
+        if (jobCheck) {
+          await supabaseAdmin
+            .from("schedules")
+            .update({ render_status: "processing" })
+            .eq("shop_id", jobCheck.shop_id)
+            .eq("template_id", jobCheck.template_id)
+            .eq("video_id", jobCheck.video_library_id)
+            .eq("scheduled_date", scheduledDate);
+        }
+ 
+        // 2. Fetch shop info first to resolve rate association
+        const { data: shopData } = await supabaseAdmin
+          .from("shops")
+          .select("name, phone, address, city, logo_url, qr_code_url, language_id, selected_rates, association_id, pricing_mode, discount_type, discount_value, metal_discounts, custom_rates, use_regional_rate_labels")
+          .eq("id", jobDetails.shop_id)
+          .single();
+        
+        shop = shopData;
+        shopAssocId = shop?.association_id;
       }
-
-      // 2. Fetch shop info first to resolve rate association
-      const { data: shop } = await supabaseAdmin
-        .from("shops")
-        .select("name, phone, address, city, logo_url, language_id, selected_rates, association_id, pricing_mode, discount_type, discount_value, metal_discounts, custom_rates, use_regional_rate_labels")
-        .eq("id", jobDetails.shop_id)
-        .single();
-
-      const shopAssocId = shop?.association_id;
-
-      let goldRate = null;
-
+ 
+      goldRate = null;
+ 
+      if (jobDetails.is_demo) {
+        const demoMeta: any = jobDetails.demo_metadata || {};
+        goldRate = {
+          rate_22k: demoMeta.rates?.rate_22k || "6500",
+          rate_24k: demoMeta.rates?.rate_24k || "7100",
+          rate_18k: demoMeta.rates?.rate_18k || "5300",
+          rate_9k: demoMeta.rates?.rate_9k || "2600",
+          rate_silver: demoMeta.rates?.rate_silver || "90"
+        };
+      }
+ 
       // Primary: Check if job is directly linked to a specific published commodity rate record
-      if (jobDetails.commodity_rate_id) {
+      if (!goldRate && jobDetails.commodity_rate_id) {
         const { data: directRate } = await supabaseAdmin
           .from("gold_rates")
           .select("rate_22k, rate_24k, rate_18k, rate_9k, rate_silver")
@@ -368,7 +496,7 @@ export async function POST(request: Request) {
       }
 
       // Resolve shop language
-      let languageName = "English";
+      languageName = "English";
       if (shop?.language_id) {
         const { data: langData } = await supabaseAdmin
           .from("languages")
@@ -450,8 +578,16 @@ export async function POST(request: Request) {
 
       let audioTrackUrl = null;
       let stripOriginalAudio = true;
-
-      if (!schedule || !schedule.audio_track_id) {
+ 
+      if (jobDetails.is_demo) {
+        const { data: tracks } = await supabaseAdmin
+          .from("music_tracks")
+          .select("cloudflare_url")
+          .eq("is_active", true);
+        if (tracks && tracks.length > 0) {
+          audioTrackUrl = tracks[0].cloudflare_url;
+        }
+      } else if (!schedule || !schedule.audio_track_id) {
         stripOriginalAudio = false;
         audioTrackUrl = null;
       } else {
@@ -642,6 +778,7 @@ export async function POST(request: Request) {
         video_library_id: jobDetails.video_library_id,
         video_url: video?.cloudflare_url || null,
         logo_url: shop?.logo_url || null,
+        qr_code_url: shop?.qr_code_url || null,
         bg_image_url: template?.bg_image_url || null,
         outro_url: shopOutroUrl || template?.outro_url || null,
         audio_track_url: audioTrackUrl || null,
@@ -809,6 +946,25 @@ export async function PUT(request: Request) {
           .eq("video_id", currentJob.video_library_id)
           .eq("scheduled_date", scheduledDate);
       }
+    } else if (status === "Cancelled") {
+      updatePayload.error_message = error_message || "Cancelled by administrator.";
+
+      // Sync cancelled status to schedules table
+      if (currentJob) {
+        const scheduledDate = currentJob.scheduled_at 
+          ? new Date(currentJob.scheduled_at).toISOString().split("T")[0] 
+          : new Date().toISOString().split("T")[0];
+
+        await supabaseAdmin
+          .from("schedules")
+          .update({
+            render_status: "failed"
+          })
+          .eq("shop_id", currentJob.shop_id)
+          .eq("template_id", currentJob.template_id)
+          .eq("video_id", currentJob.video_library_id)
+          .eq("scheduled_date", scheduledDate);
+      }
     }
 
     const { error: jobErr } = await supabaseAdmin
@@ -818,8 +974,8 @@ export async function PUT(request: Request) {
 
     if (jobErr) throw jobErr;
 
-    // Sync queue item status
-    if (status === "Completed" || (status === "Failed" && updatePayload.status !== "Retrying")) {
+    // Sync queue item status (Delete if Completed, Failed permanently, or Cancelled)
+    if (status === "Completed" || (status === "Failed" && updatePayload.status !== "Retrying") || status === "Cancelled") {
       await supabaseAdmin.from("render_queue").delete().eq("render_job_id", id);
     } else {
       await supabaseAdmin
@@ -833,10 +989,12 @@ export async function PUT(request: Request) {
       .from("render_job_logs")
       .insert([{
         render_job_id: id,
-        log_level: status === "Completed" ? "Info" : "Error",
+        log_level: status === "Completed" ? "Info" : status === "Cancelled" ? "Warn" : "Error",
         message: status === "Completed" 
           ? `Render completed successfully! Output: ${rendered_video_url}`
-          : `Render failed. Error: ${error_message}. ${updatePayload.status === "Retrying" ? `Retrying (${updatePayload.retry_count}/${currentJob.max_retry})` : "Max retries reached."}`
+          : status === "Cancelled"
+            ? `Render cancelled by administrator.`
+            : `Render failed. Error: ${error_message}. ${updatePayload.status === "Retrying" ? `Retrying (${updatePayload.retry_count}/${currentJob.max_retry})` : "Max retries reached."}`
       }]);
 
     return NextResponse.json({ success: true });

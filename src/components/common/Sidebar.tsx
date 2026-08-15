@@ -16,12 +16,13 @@ import {
   Database,
   Cpu,
   Activity,
-  Music
+  Music,
+  DollarSign
 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 
 interface SidebarProps {
-  role: "super_admin" | "admin" | "shop_user";
+  role: "super_admin" | "admin" | "shop_user" | "sales";
 }
 
 export default function Sidebar({ role }: SidebarProps) {
@@ -70,6 +71,7 @@ export default function Sidebar({ role }: SidebarProps) {
       { name: "Gold Rates", href: "/super-admin/gold-rates", icon: Coins },
       { name: "Master Data", href: "/super-admin/master-data", icon: Database },
       { name: "Render Queue", href: "/super-admin/renders", icon: Activity },
+      { name: "Billing & Finance", href: "/super-admin/finance", icon: DollarSign },
     ],
     admin: [
       { name: "My Dashboard", href: "/admin", icon: LayoutDashboard },
@@ -82,6 +84,10 @@ export default function Sidebar({ role }: SidebarProps) {
       { name: "Auto Scheduler", href: "/super-admin/scheduler-config", icon: Calendar },
       { name: "Gold Rates", href: "/super-admin/gold-rates", icon: Coins },
       { name: "Render Queue", href: "/super-admin/renders", icon: Activity },
+      { name: "Billing & Finance", href: "/super-admin/finance", icon: DollarSign },
+    ],
+    sales: [
+      { name: "Sales Portal", href: "/sales", icon: LayoutDashboard },
     ],
     shop_user: [
       { name: "Today's Video", href: "/shop", icon: Video },

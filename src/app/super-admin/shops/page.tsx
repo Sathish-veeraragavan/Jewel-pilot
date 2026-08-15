@@ -44,6 +44,19 @@ export default function SuperAdminShopsPage() {
   const [shopOwnerPhoneInput, setShopOwnerPhoneInput] = useState("");
   const [shopAddressInput, setShopAddressInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const [associations, setAssociations] = useState<any[]>([]);
+  const [selectedAssociationId, setSelectedAssociationId] = useState("");
+  const [useCustomAllowedMetals, setUseCustomAllowedMetals] = useState(false);
+  const [shopAllowedMetals, setShopAllowedMetals] = useState<string[]>([]);
+  const [weeklyCategories, setWeeklyCategories] = useState<{ [key: string]: string }>({
+    monday: "none",
+    tuesday: "none",
+    wednesday: "none",
+    thursday: "none",
+    friday: "none",
+    saturday: "none",
+    sunday: "none"
+  });
 
   // Outro Video State
   const [outroUrl, setOutroUrl] = useState<string | null>(null);
@@ -70,8 +83,21 @@ export default function SuperAdminShopsPage() {
     }
   };
 
+  const fetchAssociations = async () => {
+    try {
+      const res = await fetch("/api/associations");
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setAssociations(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch associations:", err);
+    }
+  };
+
   useEffect(() => {
     fetchShops();
+    fetchAssociations();
   }, []);
 
   const handleOpenEdit = async (shop: any) => {
@@ -81,6 +107,25 @@ export default function SuperAdminShopsPage() {
     setShopPhoneInput(shop.phone || "");
     setShopOwnerPhoneInput(shop.owner_phone || "");
     setShopAddressInput(shop.address || "");
+    setSelectedAssociationId(shop.association_id || "");
+    
+    if (shop.allowed_metals) {
+      setUseCustomAllowedMetals(true);
+      setShopAllowedMetals(shop.allowed_metals);
+    } else {
+      setUseCustomAllowedMetals(false);
+      setShopAllowedMetals(["24k", "22k", "18k", "9k", "silver"]);
+    }
+
+    setWeeklyCategories(shop.weekly_categories || {
+      monday: "none",
+      tuesday: "none",
+      wednesday: "none",
+      thursday: "none",
+      friday: "none",
+      saturday: "none",
+      sunday: "none"
+    });
     
     const sub = shop.subscription || shop.subscriptions?.[0];
     const sDate = sub?.start_date || todayStr;
@@ -108,6 +153,73 @@ export default function SuperAdminShopsPage() {
       console.error("Failed to fetch shop outro video:", err);
     }
   };
+
+  const hasChanges = () => {
+    if (!editingShop) return false;
+    const sub = editingShop.subscription || editingShop.subscriptions?.[0];
+    const originalStartDate = sub?.start_date || todayStr;
+    const originalEndDate = sub?.end_date || todayStr;
+    const originalShopStatus = editingShop.status || "active";
+    const originalSubStatus = editingShop.computedSubStatus || sub?.status || "active";
+
+    const originalAllowedMetals = editingShop.allowed_metals || null;
+    const currentAllowedMetals = useCustomAllowedMetals ? shopAllowedMetals : null;
+    const metalsChanged = JSON.stringify(originalAllowedMetals) !== JSON.stringify(currentAllowedMetals);
+
+    const originalWeeklyCategories = editingShop.weekly_categories || {
+      monday: "none",
+      tuesday: "none",
+      wednesday: "none",
+      thursday: "none",
+      friday: "none",
+      saturday: "none",
+      sunday: "none"
+    };
+    const weeklyCategoriesChanged = JSON.stringify(originalWeeklyCategories) !== JSON.stringify(weeklyCategories);
+
+    return (
+      shopNameInput !== (editingShop.name || "") ||
+      shopPhoneInput !== (editingShop.phone || "") ||
+      shopOwnerPhoneInput !== (editingShop.owner_phone || "") ||
+      shopAddressInput !== (editingShop.address || "") ||
+      startDate !== originalStartDate ||
+      endDate !== originalEndDate ||
+      shopStatus !== originalShopStatus ||
+      subStatus !== originalSubStatus ||
+      selectedAssociationId !== (editingShop.association_id || "") ||
+      metalsChanged ||
+      weeklyCategoriesChanged
+    );
+  };
+
+  const handleCancelOrClose = () => {
+    if (hasChanges()) {
+      if (confirm("Discard unsaved changes?")) {
+        setEditingShop(null);
+      }
+    } else {
+      setEditingShop(null);
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!editingShop) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        handleCancelOrClose();
+      } else if (e.key === "Enter") {
+        const target = e.target as HTMLElement;
+        if (target && target.tagName !== "TEXTAREA" && target.tagName !== "BUTTON" && !target.closest('.border-dashed')) {
+          e.preventDefault();
+          handleSaveSubscription();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [editingShop, shopNameInput, shopPhoneInput, shopOwnerPhoneInput, shopAddressInput, startDate, endDate, shopStatus, subStatus, selectedAssociationId, useCustomAllowedMetals, shopAllowedMetals]);
 
   const handleEndDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
@@ -228,6 +340,9 @@ export default function SuperAdminShopsPage() {
           phone: shopPhoneInput,
           owner_phone: shopOwnerPhoneInput,
           address: shopAddressInput,
+          association_id: selectedAssociationId || null,
+          allowed_metals: useCustomAllowedMetals ? shopAllowedMetals : null,
+          weekly_categories: weeklyCategories
         }),
       });
       const data = await res.json();
@@ -356,7 +471,19 @@ export default function SuperAdminShopsPage() {
                   shops.map((shop: any) => (
                     <tr key={shop.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="py-4 px-6">
-                        <div className="font-semibold text-primary">{shop.name}</div>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-semibold text-primary">{shop.name}</span>
+                          {shop.pricing_mode === "custom_manual" && (
+                            <span className="bg-amber-100 text-amber-800 text-[9px] font-extrabold px-1.5 py-0.5 rounded border border-amber-200 uppercase tracking-wider">
+                              Manual Pricing
+                            </span>
+                          )}
+                          {shop.pricing_mode === "discount" && (
+                            <span className="bg-blue-100 text-blue-800 text-[9px] font-extrabold px-1.5 py-0.5 rounded border border-blue-200 uppercase tracking-wider">
+                              Discount Mode
+                            </span>
+                          )}
+                        </div>
                         <div className="text-xs text-muted-foreground">
                           {shop.owner_name} • Shop Ph: {shop.phone} {shop.owner_phone ? `• Owner Ph: ${shop.owner_phone}` : ""} • {shop.city || shop.district || shop.state}
                         </div>
@@ -430,7 +557,7 @@ export default function SuperAdminShopsPage() {
                 <h3 className="font-bold text-base text-primary">Manage {editingShop.name}</h3>
                 <p className="text-xs text-muted-foreground">Shop Code: <strong className="font-mono text-accent">{editingShop.shop_code}</strong></p>
               </div>
-              <button onClick={() => setEditingShop(null)} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
+              <button onClick={handleCancelOrClose} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
             </div>
 
             {/* Outro Video Upload Card */}
@@ -509,6 +636,99 @@ export default function SuperAdminShopsPage() {
                 value={shopAddressInput} 
                 onChange={(e) => setShopAddressInput(e.target.value)} 
               />
+              
+              {userRole === "super_admin" && (
+                <div className="bg-slate-50 p-4 rounded-xl space-y-3 mt-2 border border-slate-100">
+                  <div className="text-xs font-semibold text-slate-700">
+                    Registered State: <span className="font-extrabold text-slate-900">{editingShop.states?.name || "None"}</span>
+                  </div>
+                  <Select 
+                    label="Rate Association"
+                    value={selectedAssociationId}
+                    onChange={(e) => setSelectedAssociationId(e.target.value)}
+                    options={[
+                      { label: "None / Global Fallback", value: "" },
+                      ...associations
+                        .filter((a: any) => a.state_id === editingShop.state_id)
+                        .map((a: any) => ({
+                          label: a.name,
+                          value: a.id
+                        }))
+                    ]}
+                  />
+
+                  {/* Precious Metals Visibility Configuration */}
+                  <div className="border-t border-slate-200/60 pt-3 mt-3 space-y-3">
+                    <label className="flex items-center space-x-2 text-xs font-bold text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={useCustomAllowedMetals}
+                        onChange={(e) => setUseCustomAllowedMetals(e.target.checked)}
+                        className="rounded text-accent focus:ring-accent w-4 h-4"
+                      />
+                      <span>Override Precious Metals (Custom Shop Settings)</span>
+                    </label>
+
+                    {useCustomAllowedMetals ? (
+                      <div className="space-y-1.5 pl-6">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Allowed Metals for Shop</span>
+                        <div className="flex flex-wrap gap-2">
+                          {["24k", "22k", "18k", "9k", "silver"].map((m) => {
+                            const isChecked = shopAllowedMetals.includes(m);
+                            return (
+                              <label key={m} className="flex items-center space-x-1.5 text-xs bg-white border border-slate-250 px-2.5 py-1.5 rounded-lg cursor-pointer hover:bg-slate-50">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => {
+                                    if (isChecked) {
+                                      setShopAllowedMetals(shopAllowedMetals.filter((x) => x !== m));
+                                    } else {
+                                      setShopAllowedMetals([...shopAllowedMetals, m]);
+                                    }
+                                  }}
+                                  className="rounded text-accent focus:ring-accent w-3.5 h-3.5"
+                               />
+                                <span className="font-extrabold text-[10px] uppercase text-primary">{m}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-[10px] text-slate-400 font-medium pl-6 italic">
+                        Currently inheriting visibility rules from the selected Association.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Custom Weekly Video Categories */}
+                  <div className="border-t border-slate-200/60 pt-3 mt-3 space-y-3">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Weekly Category Schedule Override</span>
+                    <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
+                      {["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"].map((day) => (
+                        <div key={day} className="flex flex-col space-y-1 p-2 bg-slate-50 rounded-xl border border-slate-100">
+                          <label className="text-[10px] font-extrabold text-slate-600 uppercase capitalize">{day}</label>
+                          <select
+                            value={weeklyCategories[day] || "none"}
+                            onChange={(e) => setWeeklyCategories({ ...weeklyCategories, [day]: e.target.value })}
+                            className="w-full text-[11px] bg-white rounded-md border border-slate-200 p-1.5 font-bold text-slate-800 focus:outline-none"
+                          >
+                            <option value="none">Default (Auto Rotate)</option>
+                            <option value="Necklace">Necklace</option>
+                            <option value="Rings">Rings</option>
+                            <option value="Earrings">Earrings</option>
+                            <option value="Ankle Chains">Ankle Chains</option>
+                            <option value="Chains">Chains</option>
+                            <option value="Bracelets/Bangles">Bracelets/Bangles</option>
+                            <option value="Maalai">Maalai</option>
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Subscription Manager Form */}
@@ -563,7 +783,7 @@ export default function SuperAdminShopsPage() {
             )}
 
             <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100">
-              <Button variant="outline" onClick={() => setEditingShop(null)}>Cancel</Button>
+              <Button variant="outline" onClick={handleCancelOrClose}>Cancel</Button>
               <Button onClick={handleSaveSubscription} disabled={saving}>
                 {saving ? "Saving..." : "Save Changes"}
               </Button>

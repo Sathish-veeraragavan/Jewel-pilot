@@ -59,9 +59,15 @@ export default function SchedulerConfigPage() {
   // Failsafe rendering modal
   const [failsafeModalOpen, setFailsafeModalOpen] = useState(false);
   const [selectedFailsafeShops, setSelectedFailsafeShops] = useState<string[]>([]);
+  const [associations, setAssociations] = useState<any[]>([]);
+  const [failsafeSelectionMode, setFailsafeSelectionMode] = useState<"association" | "shop">("association");
+  const [selectedFailsafeAssociations, setSelectedFailsafeAssociations] = useState<string[]>([]);
 
   const handleOpenFailsafeModal = () => {
     setSelectedFailsafeShops(matrixData.shops.map((s: any) => s.id));
+    const allAssocIds = [...associations.map((a: any) => a.id), "global_fallback"];
+    setSelectedFailsafeAssociations(allAssocIds);
+    setFailsafeSelectionMode("association");
     setFailsafeModalOpen(true);
   };
 
@@ -137,6 +143,21 @@ export default function SchedulerConfigPage() {
   useEffect(() => {
     fetchMatrixData();
   }, [startDate, horizon]);
+
+  useEffect(() => {
+    const fetchAssociations = async () => {
+      try {
+        const res = await fetch("/api/associations");
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setAssociations(data);
+        }
+      } catch (err) {
+        console.error("Failed to load associations:", err);
+      }
+    };
+    fetchAssociations();
+  }, []);
 
   const handleRunAutoScheduler = async () => {
     if (selectedSchedulerShops.length === 0) {
@@ -217,6 +238,44 @@ export default function SchedulerConfigPage() {
       setUpdating(false);
     }
   };
+
+  const hasEditChanges = () => {
+    if (!selectedSchedule) return false;
+    return (
+      selectedVideoId !== (selectedSchedule.video_id || "") ||
+      selectedTemplateId !== (selectedSchedule.template_id || "") ||
+      selectedAudioId !== (selectedSchedule.audio_track_id || "")
+    );
+  };
+
+  const handleCancelManualEdit = () => {
+    if (hasEditChanges()) {
+      if (confirm("Discard unsaved changes?")) {
+        setEditModalOpen(false);
+      }
+    } else {
+      setEditModalOpen(false);
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (editModalOpen && selectedSchedule) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          handleCancelManualEdit();
+        } else if (e.key === "Enter") {
+          const target = e.target as HTMLElement;
+          if (target && target.tagName !== "TEXTAREA" && target.tagName !== "BUTTON") {
+            e.preventDefault();
+            handleSaveManualEdit();
+          }
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [editModalOpen, selectedSchedule, selectedVideoId, selectedTemplateId, selectedAudioId, updating]);
 
   const handleRollbackTrigger = (batchId: string) => {
     setRollbackBatchId(batchId);
@@ -487,7 +546,7 @@ export default function SchedulerConfigPage() {
               </div>
               <button 
                 type="button" 
-                onClick={() => setEditModalOpen(false)} 
+                onClick={handleCancelManualEdit} 
                 className="text-slate-400 hover:text-slate-600 font-bold"
               >
                 ✕
@@ -500,16 +559,16 @@ export default function SchedulerConfigPage() {
                 value={selectedVideoId}
                 onChange={(e) => setSelectedVideoId(e.target.value)}
                 options={(matrixData.availableVideos || []).map((v: any) => {
-                  // Check if this shop has already downloaded this video in any past schedule
-                  const pastDownloaded = (matrixData.schedules || []).find((s: any) => 
+                  // Check if this shop has already been sent this video in any other schedule slot
+                  const pastSent = (matrixData.schedules || []).find((s: any) => 
                     s.shop_id === selectedSchedule.shopId && 
-                    s.video_id === v.id && 
-                    s.download_status === "downloaded"
+                    s.video_id === v.id &&
+                    s.id !== selectedSchedule.id
                   );
 
                   return {
-                    label: pastDownloaded 
-                      ? `${v.title} ⚠️ (Already Delivered/Downloaded on ${pastDownloaded.scheduled_date})` 
+                    label: pastSent 
+                      ? `${v.title} ⚠️ (these videos are already sent on ${pastSent.scheduled_date})` 
                       : v.title,
                     value: v.id
                   };
@@ -567,7 +626,7 @@ export default function SchedulerConfigPage() {
             </div>
 
             <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100">
-              <Button type="button" variant="outline" onClick={() => setEditModalOpen(false)}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={handleCancelManualEdit}>Cancel</Button>
               <Button onClick={handleSaveManualEdit} disabled={updating}>
                 {updating ? "Saving Changes..." : "Save Selection"}
               </Button>
@@ -590,12 +649,59 @@ export default function SchedulerConfigPage() {
               </p>
             </div>
 
+            {/* Selection Mode Toggle */}
+            <div className="flex border-b border-slate-100 pb-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setFailsafeSelectionMode("association");
+                  const currentAssocIds = Array.from(new Set(
+                    matrixData.shops
+                      .filter((s: any) => selectedFailsafeShops.includes(s.id))
+                      .map((s: any) => s.association_id || "global_fallback")
+                  )) as string[];
+                  setSelectedFailsafeAssociations(currentAssocIds);
+                }}
+                className={`flex-1 pb-2 text-xs font-bold text-center border-b-2 transition-all ${
+                  failsafeSelectionMode === "association"
+                    ? "border-accent text-primary font-extrabold"
+                    : "border-transparent text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                By Association
+              </button>
+              <button
+                type="button"
+                onClick={() => setFailsafeSelectionMode("shop")}
+                className={`flex-1 pb-2 text-xs font-bold text-center border-b-2 transition-all ${
+                  failsafeSelectionMode === "shop"
+                    ? "border-accent text-primary font-extrabold"
+                    : "border-transparent text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                By Individual Shop
+              </button>
+            </div>
+
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <span className="text-xs font-bold text-slate-700">Shops ({selectedFailsafeShops.length} of {matrixData.shops.length} selected)</span>
+              <span className="text-xs font-bold text-slate-700">
+                {failsafeSelectionMode === "association" 
+                  ? `Associations (${selectedFailsafeAssociations.length} selected, representing ${selectedFailsafeShops.length} shops)`
+                  : `Shops (${selectedFailsafeShops.length} of ${matrixData.shops.length} selected)`
+                }
+              </span>
               <div className="space-x-2">
                 <button 
                   type="button"
-                  onClick={() => setSelectedFailsafeShops(matrixData.shops.map((s: any) => s.id))}
+                  onClick={() => {
+                    if (failsafeSelectionMode === "association") {
+                      const allAssocIds = [...associations.map((a: any) => a.id), "global_fallback"];
+                      setSelectedFailsafeAssociations(allAssocIds);
+                      setSelectedFailsafeShops(matrixData.shops.map((s: any) => s.id));
+                    } else {
+                      setSelectedFailsafeShops(matrixData.shops.map((s: any) => s.id));
+                    }
+                  }}
                   className="text-[10px] text-blue-600 hover:underline font-bold"
                 >
                   Select All
@@ -603,7 +709,12 @@ export default function SchedulerConfigPage() {
                 <span className="text-slate-300">|</span>
                 <button 
                   type="button"
-                  onClick={() => setSelectedFailsafeShops([])}
+                  onClick={() => {
+                    if (failsafeSelectionMode === "association") {
+                      setSelectedFailsafeAssociations([]);
+                    }
+                    setSelectedFailsafeShops([]);
+                  }}
                   className="text-[10px] text-slate-500 hover:underline font-bold"
                 >
                   Deselect All
@@ -612,29 +723,105 @@ export default function SchedulerConfigPage() {
             </div>
 
             <div className="max-h-60 overflow-y-auto space-y-2 border border-slate-100 rounded-2xl p-3 bg-slate-50/50">
-              {matrixData.shops.map((shop: any) => {
-                const isChecked = selectedFailsafeShops.includes(shop.id);
-                return (
-                  <label key={shop.id} className="flex items-center space-x-3 p-2 hover:bg-white rounded-xl border border-transparent hover:border-slate-200 cursor-pointer transition-all">
-                    <input 
-                      type="checkbox" 
-                      checked={isChecked}
-                      onChange={() => {
-                        if (isChecked) {
-                          setSelectedFailsafeShops(selectedFailsafeShops.filter(id => id !== shop.id));
-                        } else {
-                          setSelectedFailsafeShops([...selectedFailsafeShops, shop.id]);
-                        }
-                      }}
-                      className="rounded text-primary focus:ring-primary h-4 w-4 border-slate-350"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-bold text-slate-900 truncate">{shop.name}</div>
-                      <div className="text-[10px] font-mono text-accent font-bold mt-0.5">{shop.shop_code || "SHOP"}</div>
-                    </div>
-                  </label>
-                );
-              })}
+              {failsafeSelectionMode === "association" ? (
+                <>
+                  {associations.map((assoc: any) => {
+                    const isChecked = selectedFailsafeAssociations.includes(assoc.id);
+                    const count = matrixData.shops.filter((s: any) => s.association_id === assoc.id).length;
+                    return (
+                      <label key={assoc.id} className="flex items-center space-x-3 p-2 hover:bg-white rounded-xl border border-transparent hover:border-slate-200 cursor-pointer transition-all">
+                        <input 
+                          type="checkbox" 
+                          checked={isChecked}
+                          onChange={() => {
+                            let nextAssocs = [...selectedFailsafeAssociations];
+                            if (isChecked) {
+                              nextAssocs = nextAssocs.filter(id => id !== assoc.id);
+                            } else {
+                              nextAssocs.push(assoc.id);
+                            }
+                            setSelectedFailsafeAssociations(nextAssocs);
+                            
+                            const matchedShopIds = matrixData.shops
+                              .filter((s: any) => {
+                                const sAssocId = s.association_id || "global_fallback";
+                                return nextAssocs.includes(sAssocId);
+                              })
+                              .map((s: any) => s.id);
+                            setSelectedFailsafeShops(matchedShopIds);
+                          }}
+                          className="rounded text-primary focus:ring-primary h-4 w-4 border-slate-350"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-bold text-slate-900 truncate">{assoc.name}</div>
+                          <div className="text-[10px] text-slate-400 mt-0.5">{count} {count === 1 ? 'shop' : 'shops'}</div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                  {(() => {
+                    const isChecked = selectedFailsafeAssociations.includes("global_fallback");
+                    const count = matrixData.shops.filter((s: any) => !s.association_id).length;
+                    if (count > 0) {
+                      return (
+                        <label className="flex items-center space-x-3 p-2 hover:bg-white rounded-xl border border-transparent hover:border-slate-200 cursor-pointer transition-all">
+                          <input 
+                            type="checkbox" 
+                            checked={isChecked}
+                            onChange={() => {
+                              let nextAssocs = [...selectedFailsafeAssociations];
+                              if (isChecked) {
+                                nextAssocs = nextAssocs.filter(id => id !== "global_fallback");
+                              } else {
+                                nextAssocs.push("global_fallback");
+                              }
+                              setSelectedFailsafeAssociations(nextAssocs);
+                              
+                              const matchedShopIds = matrixData.shops
+                                .filter((s: any) => {
+                                  const sAssocId = s.association_id || "global_fallback";
+                                  return nextAssocs.includes(sAssocId);
+                                })
+                                .map((s: any) => s.id);
+                              setSelectedFailsafeShops(matchedShopIds);
+                            }}
+                            className="rounded text-primary focus:ring-primary h-4 w-4 border-slate-350"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-bold text-slate-900 truncate">No Association (Global Fallback)</div>
+                            <div className="text-[10px] text-slate-400 mt-0.5">{count} {count === 1 ? 'shop' : 'shops'}</div>
+                          </div>
+                        </label>
+                      );
+                    }
+                    return null;
+                  })()}
+                </>
+              ) : (
+                matrixData.shops.map((shop: any) => {
+                  const isChecked = selectedFailsafeShops.includes(shop.id);
+                  return (
+                    <label key={shop.id} className="flex items-center space-x-3 p-2 hover:bg-white rounded-xl border border-transparent hover:border-slate-200 cursor-pointer transition-all">
+                      <input 
+                        type="checkbox" 
+                        checked={isChecked}
+                        onChange={() => {
+                          if (isChecked) {
+                            setSelectedFailsafeShops(selectedFailsafeShops.filter(id => id !== shop.id));
+                          } else {
+                            setSelectedFailsafeShops([...selectedFailsafeShops, shop.id]);
+                          }
+                        }}
+                        className="rounded text-primary focus:ring-primary h-4 w-4 border-slate-350"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-bold text-slate-900 truncate">{shop.name}</div>
+                        <div className="text-[10px] font-mono text-accent font-bold mt-0.5">{shop.shop_code || "SHOP"}</div>
+                      </div>
+                    </label>
+                  );
+                })
+              )}
             </div>
 
             <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100">

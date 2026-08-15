@@ -40,7 +40,7 @@ export async function GET(request: Request) {
     ] = await Promise.all([
       supabaseAdmin.from("shops").select("id, name, state_id, district_id, status, language_id"),
       supabaseAdmin.from("videos").select("id, title, category, cloudflare_url, is_active, usage_count, is_lite_weight"),
-      supabaseAdmin.from("templates").select("id, name, template_type, status, version, config"),
+      supabaseAdmin.from("templates").select("id, name, template_type, status, version, config, allowed_shop_ids"),
       supabaseAdmin.from("occasions").select("id, name, priority, start_date, end_date, greetings, states, languages, status"),
       supabaseAdmin.from("system_settings").select("setting_key, value"),
       supabaseAdmin.from("gold_rates").select("id, rate_22k, rate_24k, rate_silver, rate_date").order("rate_date", { ascending: false }).limit(1)
@@ -118,7 +118,7 @@ export async function POST(request: Request) {
       { data: goldRates }
     ] = await Promise.all([
       supabaseAdmin.from("videos").select("id, title, category, cloudflare_url, is_active, usage_count, is_lite_weight"),
-      supabaseAdmin.from("templates").select("id, name, template_type, status, version, config, occasion_id, placeholder_count"),
+      supabaseAdmin.from("templates").select("id, name, template_type, status, version, config, occasion_id, placeholder_count, allowed_shop_ids"),
       supabaseAdmin.from("occasions").select("id, name, priority, start_date, end_date, greetings, states, languages, status"),
       supabaseAdmin.from("system_settings").select("setting_key, value"),
       supabaseAdmin.from("gold_rates").select("id, rate_22k, rate_24k, rate_silver, rate_date").eq("rate_date", simDate).maybeSingle()
@@ -247,6 +247,11 @@ export async function POST(request: Request) {
       const shopRatesCount = (shop.selected_rates && shop.selected_rates.length > 0) ? shop.selected_rates.length : 3;
       traceLogs.push(`Shop selected rates count: ${shopRatesCount} (${JSON.stringify(shop.selected_rates || [])})`);
 
+      const hasExclusiveTemplates = (templates || []).some(t => {
+        const allowed = (t as any).allowed_shop_ids;
+        return allowed && allowed.length > 0 && allowed.includes(shop.id);
+      });
+
       for (const temp of (templates || [])) {
         let isEligible = temp.status === "active";
         let rejectReason = "";
@@ -259,6 +264,19 @@ export async function POST(request: Request) {
         } else if (selectedOccasion && temp.occasion_id && temp.occasion_id !== selectedOccasion.id) {
           isEligible = false;
           rejectReason = `Occasion mismatch (template linked to different occasion: ${temp.occasion_id})`;
+        } else {
+          const allowedShops = (temp as any).allowed_shop_ids;
+          if (hasExclusiveTemplates) {
+            if (!allowedShops || !allowedShops.includes(shop.id)) {
+              isEligible = false;
+              rejectReason = "Shop has custom exclusive templates assigned, general public templates are excluded";
+            }
+          } else {
+            if (allowedShops && allowedShops.length > 0) {
+              isEligible = false;
+              rejectReason = "Template is restricted to designated shops only";
+            }
+          }
         }
 
         templateEvaluations.push({

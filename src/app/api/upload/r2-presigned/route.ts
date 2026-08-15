@@ -14,13 +14,13 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { filename, contentType, prefix } = body;
+    const { filename, contentType, prefix, category } = body;
 
     if (!filename || !prefix) {
       return NextResponse.json({ error: "Missing filename or prefix" }, { status: 400 });
     }
 
-    const data = await getR2PresignedUploadUrl(filename, contentType || "video/mp4", prefix);
+    const data = await getR2PresignedUploadUrl(filename, contentType || "video/mp4", prefix, category);
     return NextResponse.json(data);
   } catch (err: any) {
     console.error("POST /api/upload/r2-presigned error:", err);

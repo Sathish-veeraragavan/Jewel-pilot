@@ -20,6 +20,7 @@ export default function AdminsRosterPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState("admin");
   const [creating, setCreating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -49,6 +50,56 @@ export default function AdminsRosterPage() {
     fetchAdmins();
   }, []);
 
+   const handleCancelCreate = () => {
+    if (name || email || password) {
+      if (confirm("Discard unsaved changes?")) {
+        setCreateOpen(false);
+        setName("");
+        setEmail("");
+        setPassword("");
+        setRole("admin");
+        setErrorMsg(null);
+      }
+    } else {
+      setCreateOpen(false);
+      setRole("admin");
+      setErrorMsg(null);
+    }
+  };
+
+  const handleCancelReset = () => {
+    if (newPassword) {
+      if (confirm("Discard unsaved changes?")) {
+        setResetTarget(null);
+        setNewPassword("");
+      }
+    } else {
+      setResetTarget(null);
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (createOpen && e.key === "Escape") {
+        e.preventDefault();
+        handleCancelCreate();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [createOpen, name, email, password]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (resetTarget && e.key === "Escape") {
+        e.preventDefault();
+        handleCancelReset();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [resetTarget, newPassword]);
+
   const handleCreateAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreating(true);
@@ -58,7 +109,7 @@ export default function AdminsRosterPage() {
       const res = await fetch("/api/super-admin/admins", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password })
+        body: JSON.stringify({ name, email, password, role })
       });
       const data = await res.json();
 
@@ -69,6 +120,7 @@ export default function AdminsRosterPage() {
         setName("");
         setEmail("");
         setPassword("");
+        setRole("admin");
         fetchAdmins();
       }
     } catch (err) {
@@ -157,10 +209,10 @@ export default function AdminsRosterPage() {
           <LoadingSpinner />
         ) : admins.length === 0 ? (
           <div className="text-center text-slate-500 text-xs py-12">
-            No Sales Admin accounts created yet. Click "Create New Sales Admin" to register a Sales Admin user.
+            No Sales Admin/Partner accounts created yet. Click "Create New Sales Admin" to register a user.
           </div>
         ) : (
-          <Table headers={["Sales Admin Name", "Email Address", "Status", "Created At", "Actions"]}>
+          <Table headers={["Name & Role", "Email Address", "Status", "Created At", "Actions"]}>
             {admins.map((adm) => (
               <tr key={adm.id} className="hover:bg-slate-50/50">
                 <td className="py-4 px-6">
@@ -168,7 +220,10 @@ export default function AdminsRosterPage() {
                     <div className="p-2 bg-blue-50 text-blue-600 rounded-lg border border-blue-100">
                       <Shield className="w-4 h-4" />
                     </div>
-                    <span className="font-semibold text-primary">{adm.name}</span>
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-primary">{adm.name}</span>
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">{adm.role === "sales" ? "Sales Partner" : "Sales Admin"}</span>
+                    </div>
                   </div>
                 </td>
                 <td className="py-4 px-6 text-slate-600 font-mono text-xs">{adm.email}</td>
@@ -224,7 +279,7 @@ export default function AdminsRosterPage() {
                 <UserPlus className="w-5 h-5 text-accent" />
                 <h3 className="font-bold text-base text-primary">Create Sales Admin</h3>
               </div>
-              <button type="button" onClick={() => setCreateOpen(false)} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
+              <button type="button" onClick={handleCancelCreate} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
             </div>
 
             {errorMsg && (
@@ -257,10 +312,21 @@ export default function AdminsRosterPage() {
                 value={password} 
                 onChange={(e) => setPassword(e.target.value)} 
               />
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Account Access Role</label>
+                <select 
+                  value={role} 
+                  onChange={(e) => setRole(e.target.value)} 
+                  className="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl text-xs font-semibold text-primary outline-none focus:border-accent"
+                >
+                  <option value="admin">Sales Admin (Full Dashboard & Approvals)</option>
+                  <option value="sales">Sales Partner (Onboard Shop & Demo Videos Only)</option>
+                </select>
+              </div>
             </div>
 
             <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100">
-              <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+               <Button type="button" variant="outline" onClick={handleCancelCreate}>Cancel</Button>
               <Button type="submit" disabled={creating}>
                 {creating ? "Creating Account..." : "Create Account"}
               </Button>
@@ -278,7 +344,7 @@ export default function AdminsRosterPage() {
                 <Lock className="w-5 h-5 text-accent" />
                 <h3 className="font-bold text-base text-primary">Reset Admin Password</h3>
               </div>
-              <button type="button" onClick={() => setResetTarget(null)} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
+              <button type="button" onClick={handleCancelReset} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
             </div>
 
             <p className="text-xs text-muted-foreground">Reset credentials for <strong className="text-primary">{resetTarget.name}</strong> ({resetTarget.email}).</p>
@@ -293,7 +359,7 @@ export default function AdminsRosterPage() {
             />
 
             <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100">
-              <Button type="button" variant="outline" onClick={() => setResetTarget(null)}>Cancel</Button>
+               <Button type="button" variant="outline" onClick={handleCancelReset}>Cancel</Button>
               <Button type="submit" disabled={resetting}>
                 {resetting ? "Resetting Password..." : "Update Password"}
               </Button>

@@ -22,6 +22,7 @@ export async function PUT(request: Request) {
       phone, 
       address, 
       logo_url, 
+      qr_code_url,
       email, 
       password,
       selected_rates,
@@ -29,7 +30,8 @@ export async function PUT(request: Request) {
       discount_type,
       discount_value,
       custom_rates,
-      owner_phone
+      owner_phone,
+      weekly_categories
     } = body;
 
     // 1. Resolve shop_id for logged in user
@@ -74,6 +76,7 @@ export async function PUT(request: Request) {
     if (owner_phone !== undefined) shopUpdate.owner_phone = owner_phone;
     if (address) shopUpdate.address = address;
     if (logo_url) shopUpdate.logo_url = logo_url;
+    if (qr_code_url !== undefined) shopUpdate.qr_code_url = qr_code_url;
     if (selected_rates !== undefined) shopUpdate.selected_rates = selected_rates;
     if (pricing_mode !== undefined) shopUpdate.pricing_mode = pricing_mode;
     if (discount_type !== undefined) shopUpdate.discount_type = discount_type;
@@ -81,6 +84,7 @@ export async function PUT(request: Request) {
     if (body.metal_discounts !== undefined) shopUpdate.metal_discounts = body.metal_discounts;
     if (custom_rates !== undefined) shopUpdate.custom_rates = custom_rates;
     if (body.use_regional_rate_labels !== undefined) shopUpdate.use_regional_rate_labels = body.use_regional_rate_labels;
+    if (weekly_categories !== undefined) shopUpdate.weekly_categories = weekly_categories;
 
     const { error: shopErr } = await supabaseAdmin
       .from("shops")
@@ -128,6 +132,24 @@ export async function PUT(request: Request) {
     let triggeredJobId = null;
     if (body.trigger_render) {
       const todayStr = new Date().toISOString().split("T")[0];
+      
+      // Enforce daily limit of 2 manual renders
+      const todayStart = new Date();
+      todayStart.setHours(0,0,0,0);
+      const todayStartISO = todayStart.toISOString();
+
+      const { count: renderCount } = await supabaseAdmin
+        .from("render_jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("shop_id", shopId)
+        .gte("created_at", todayStartISO);
+
+      if (renderCount && renderCount >= 2) {
+        return NextResponse.json({ 
+          error: "The daily limit to generate videos (max 2/day) has been reached." 
+        }, { status: 429 });
+      }
+
       const { data: schedule } = await supabaseAdmin
         .from("schedules")
         .select("id, scheduled_date, video_id, template_id, audio_track_id")

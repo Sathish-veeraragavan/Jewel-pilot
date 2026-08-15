@@ -13,7 +13,8 @@ import {
   AlertTriangle,
   Image as ImageIcon,
   Sparkles,
-  Crop
+  Crop,
+  Calendar
 } from "lucide-react";
 import { Button, Input, Select, PageHeader, LoadingSpinner } from "@/components/ui/reusable";
 import LogoCropModal from "@/components/ui/LogoCropModal";
@@ -25,6 +26,9 @@ export default function ShopProfilePage() {
 
   const [formError, setFormError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [qrCodeUrl, setQrCodeUrl] = useState("");
+  const [uploadingQrCode, setUploadingQrCode] = useState(false);
+  const [cropTarget, setCropTarget] = useState<"logo" | "qrcode">("logo");
 
   // Form State
   const [shopName, setShopName] = useState("");
@@ -37,6 +41,7 @@ export default function ShopProfilePage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [selectedRates, setSelectedRates] = useState<string[]>([]);
+  const [allowedMetals, setAllowedMetals] = useState<string[]>(["24k", "22k", "18k", "9k", "silver"]);
   const [associations, setAssociations] = useState<any[]>([]);
   const [selectedAssociationId, setSelectedAssociationId] = useState("");
   const [cropModalOpen, setCropModalOpen] = useState(false);
@@ -50,6 +55,15 @@ export default function ShopProfilePage() {
   const [customRates, setCustomRates] = useState<{ rate_22k?: number; rate_24k?: number; rate_18k?: number; rate_9k?: number; rate_silver?: number }>({});
   const [useRegionalRateLabels, setUseRegionalRateLabels] = useState<boolean>(false);
   const [languageName, setLanguageName] = useState<string>("English");
+  const [weeklyCategories, setWeeklyCategories] = useState<{ [key: string]: string }>({
+    monday: "none",
+    tuesday: "none",
+    wednesday: "none",
+    thursday: "none",
+    friday: "none",
+    saturday: "none",
+    sunday: "none"
+  });
 
   const fetchAssociations = async (stateId: string) => {
     if (!stateId) return;
@@ -80,8 +94,10 @@ export default function ShopProfilePage() {
         setOwnerPhone(data.ownerPhone || "");
         setAddress(data.address || "");
         setLogoUrl(data.logoUrl || "");
+        setQrCodeUrl(data.qrCodeUrl || "");
         setEmail(data.email || "");
         setSelectedRates(data.selectedRates || ["rate_22k_1g", "rate_22k_8g", "rate_silver_1g"]);
+        setAllowedMetals(data.allowedMetals || ["24k", "22k", "18k", "9k", "silver"]);
         setSelectedAssociationId(data.associationId || "");
         setPricingMode(data.pricingMode || "default");
         setDiscountType(data.discountType || "percentage");
@@ -90,6 +106,15 @@ export default function ShopProfilePage() {
         setCustomRates(data.customRates || {});
         setUseRegionalRateLabels(!!data.useRegionalRateLabels);
         setLanguageName(data.language || "English");
+        setWeeklyCategories(data.weekly_categories || {
+          monday: "none",
+          tuesday: "none",
+          wednesday: "none",
+          thursday: "none",
+          friday: "none",
+          saturday: "none",
+          sunday: "none"
+        });
         if (data.stateId) {
           fetchAssociations(data.stateId);
         }
@@ -105,6 +130,13 @@ export default function ShopProfilePage() {
     fetchProfile();
   }, []);
 
+  useEffect(() => {
+    setSelectedRates(prev => prev.filter(rateKey => {
+      const metal = rateKey.replace("rate_", "").replace("_1g", "").replace("_8g", "");
+      return allowedMetals.includes(metal);
+    }));
+  }, [allowedMetals]);
+
   const handleLogoFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawFile = e.target.files?.[0];
     if (!rawFile) return;
@@ -112,6 +144,19 @@ export default function ShopProfilePage() {
     setFormError(null);
     const objectUrl = URL.createObjectURL(rawFile);
     setSelectedImageSrc(objectUrl);
+    setCropTarget("logo");
+    setCropModalOpen(true);
+    e.target.value = ""; // reset input
+  };
+
+  const handleQrCodeFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawFile = e.target.files?.[0];
+    if (!rawFile) return;
+
+    setFormError(null);
+    const objectUrl = URL.createObjectURL(rawFile);
+    setSelectedImageSrc(objectUrl);
+    setCropTarget("qrcode");
     setCropModalOpen(true);
     e.target.value = ""; // reset input
   };
@@ -146,13 +191,51 @@ export default function ShopProfilePage() {
     }
   };
 
+  const handleCroppedQrCodeUpload = async (croppedWebpFile: File) => {
+    setUploadingQrCode(true);
+    setFormError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", croppedWebpFile);
+      formData.append("shopCode", `${shopCode || "SHOP"}/qrcodes`);
+
+      const res = await fetch("/api/upload/r2", {
+        method: "POST",
+        body: formData
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        setFormError(`QR Code Upload Failed: ${data.error}`);
+      } else if (data.url) {
+        const cacheBustedUrl = data.url.includes("?") ? `${data.url}&v=${Date.now()}` : `${data.url}?v=${Date.now()}`;
+        setQrCodeUrl(cacheBustedUrl);
+        setSuccessMsg("Cropped QR Code saved & synced to Cloudflare R2!");
+        setTimeout(() => setSuccessMsg(null), 4000);
+      }
+    } catch (err) {
+      setFormError("Failed to upload cropped QR Code to Cloudflare R2.");
+    } finally {
+      setUploadingQrCode(false);
+    }
+  };
+
+  const handleCropComplete = async (croppedWebpFile: File) => {
+    if (cropTarget === "logo") {
+      await handleCroppedLogoUpload(croppedWebpFile);
+    } else {
+      await handleCroppedQrCodeUpload(croppedWebpFile);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
     setSuccessMsg(null);
 
-    if (selectedRates.length < 3 || selectedRates.length > 4) {
-      setFormError("You must select between 3 and 4 precious metal rate displays.");
+    if (selectedRates.length < 2 || selectedRates.length > 4) {
+      setFormError("You must select between 2 and 4 precious metal rate displays.");
       return;
     }
 
@@ -169,6 +252,7 @@ export default function ShopProfilePage() {
           owner_phone: ownerPhone,
           address,
           logo_url: logoUrl,
+          qr_code_url: qrCodeUrl,
           email,
           password: password || undefined,
           selected_rates: selectedRates,
@@ -179,7 +263,8 @@ export default function ShopProfilePage() {
           discount_value: discountValue,
           metal_discounts: metalDiscounts,
           custom_rates: customRates,
-          use_regional_rate_labels: useRegionalRateLabels
+          use_regional_rate_labels: useRegionalRateLabels,
+          weekly_categories: weeklyCategories
         })
       });
       const data = await res.json();
@@ -322,19 +407,21 @@ export default function ShopProfilePage() {
             </div>
           </div>
           <p className="text-xs text-slate-500">
-            Select and order exactly 3 or 4 rates you want to display on the video overlay. Clicking an item adds it to the slots in order; clicking a selected item removes it.
+            Select and order exactly 2, 3, or 4 rates you want to display on the video overlay. Clicking an item adds it to the slots in order; clicking a selected item removes it.
           </p>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
-              { id: "rate_22k_1g", label: "22K Gold (1G)", regional: { tamil: "1 கிராம் 22 கேரட்", telugu: "1 గ్రామ్ 22K", kannada: "1 ಗ್ರಾಂ 22K", malayalam: "1 ഗ്രാം 22K", hindi: "1 ग्राम 22K" } },
-              { id: "rate_22k_8g", label: "22K Gold (8G / 1 Sov)", regional: { tamil: "8 கிராம் 22 கேரட்", telugu: "8 గ్రాములు 22K", kannada: "8 ಗ್ರಾಂ 22K", malayalam: "8 ഗ്രാം 22K", hindi: "8 ग्राम 22K" } },
-              { id: "rate_24k_1g", label: "24K Gold (1G)", regional: { tamil: "1 கிராம் 24 கேரட்", telugu: "1 గ్రామ్ 24K", kannada: "1 ಗ್ರಾಂ 24K", malayalam: "1 ഗ്രാം 24K", hindi: "1 ग्राम 24K" } },
-              { id: "rate_18k_1g", label: "18K Gold (1G)", regional: { tamil: "1 கிராம் 18 கேரட்", telugu: "1 గ్రామ్ 18K", kannada: "1 ಗ್ರಾಂ 18K", malayalam: "1 ഗ്രാം 18K", hindi: "1 ग्राम 18K" } },
-              { id: "rate_18k_8g", label: "18K Gold (8G / 1 Sov)", regional: { tamil: "8 கிராம் 18 கேரட்", telugu: "8 గ్రాములు 18K", kannada: "8 ಗ್ರಾಂ 18K", malayalam: "8 ഗ്രാം 18K", hindi: "8 ग्राम 18K" } },
-              { id: "rate_9k_1g", label: "9K Gold (1G)", regional: { tamil: "1 கிராம் 9 கேரட்", telugu: "1 గ్రామ్ 9K", kannada: "1 ಗ್ರಾಂ 9K", malayalam: "1 ഗ്രാം 9K", hindi: "1 ग्राम 9K" } },
-              { id: "rate_silver_1g", label: "Silver (1G)", regional: { tamil: "1 கிராம் வெள்ளி", telugu: "1 గ్రామ్ వెండి", kannada: "1 ಗ್ರಾಂ ಬೆಳ್ಳಿ", malayalam: "1 ഗ്രാം വെള്ളി", hindi: "1 ग्राम चांदी" } },
-            ].map((opt) => {
+              { id: "rate_22k_1g", label: "22K Gold (1G)", metal: "22k", regional: { tamil: "1 கிராம் 22 கேரட்", telugu: "1 గ్రామ్ 22K", kannada: "1 ಗ್ರಾಂ 22K", malayalam: "1 ഗ്രാം 22K", hindi: "1 ग्राम 22K" } },
+              { id: "rate_22k_8g", label: "22K Gold (8G / 1 Sov)", metal: "22k", regional: { tamil: "8 கிராம் 22 கேரட்", telugu: "8 గ్రాములు 22K", kannada: "8 ಗ್ರಾಂ 22K", malayalam: "8 ഗ്രാം 22K", hindi: "8 ग्राम 22K" } },
+              { id: "rate_24k_1g", label: "24K Gold (1G)", metal: "24k", regional: { tamil: "1 கிராம் 24 கேரட்", telugu: "1 గ్రామ్ 24K", kannada: "1 ಗ್ರಾಂ 24K", malayalam: "1 ഗ്രാം 24K", hindi: "1 gram 24K" } },
+              { id: "rate_18k_1g", label: "18K Gold (1G)", metal: "18k", regional: { tamil: "1 கிராம் 18 கேரட்", telugu: "1 గ్రామ్ 18K", kannada: "1 ಗ್ರಾಂ 18K", malayalam: "1 ഗ്രಾಂ 18K", hindi: "1 gram 18K" } },
+              { id: "rate_18k_8g", label: "18K Gold (8G / 1 Sov)", metal: "18k", regional: { tamil: "8 கிராம் 18 கேரட்", telugu: "8 గ్రాములు 18K", kannada: "8 ಗ್ರಾಂ 18K", malayalam: "8 ഗ്രಾಂ 18K", hindi: "8 gram 18K" } },
+              { id: "rate_9k_1g", label: "9K Gold (1G)", metal: "9k", regional: { tamil: "1 கிராம் 9 கேரட்", telugu: "1 గ్రామ్ 9K", kannada: "1 ಗ್ರಾಂ 9K", malayalam: "1 ഗ്രാം 9K", hindi: "1 gram 9K" } },
+              { id: "rate_silver_1g", label: "Silver (1G)", metal: "silver", regional: { tamil: "1 கிராம் வெள்ளி", telugu: "1 గ్రామ్ వెండి", kannada: "1 ಗ್ರಾಂ ಬೆಳ್ಳಿ", malayalam: "1 ഗ്രാം വെള്ളി", hindi: "1 gram चांदी" } },
+            ]
+            .filter(opt => allowedMetals.includes(opt.metal))
+            .map((opt) => {
               const selectedIdx = selectedRates.indexOf(opt.id);
               const isSelected = selectedIdx !== -1;
               const langKey = languageName.toLowerCase();
@@ -379,7 +466,7 @@ export default function ShopProfilePage() {
           <div className="flex items-center space-x-2 text-[11px] font-semibold text-slate-500 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
             <span>Current display order:</span>
             {selectedRates.length === 0 ? (
-              <span className="text-red-500 font-bold">None selected (Minimum 3 required)</span>
+              <span className="text-red-500 font-bold">None selected (Minimum 2 required)</span>
             ) : (
               <span className="text-accent font-extrabold">
                 {selectedRates.map((r, i) => `${i + 1}. ${r.replace("rate_", "").replace("_", " ").toUpperCase()}`).join("  ➡  ")}
@@ -441,6 +528,64 @@ export default function ShopProfilePage() {
                 placeholder="https://your-r2-domain.com/logos/SHOP_logo_123.webp"
                 value={logoUrl} 
                 onChange={(e) => setLogoUrl(e.target.value)} 
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Section 2.2: Cloudflare R2 Digi QR Upload */}
+        <div className="space-y-4 pt-2 border-t border-slate-150">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <div className="flex items-center space-x-2">
+              <ImageIcon className="w-5 h-5 text-accent" />
+              <h3 className="font-bold text-sm text-primary uppercase tracking-wider">Digi Gold QR Code Storage</h3>
+            </div>
+            <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-md flex items-center space-x-1">
+              <Crop className="w-3 h-3 text-accent" />
+              <span>QR Code Trimmer</span>
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+            {/* QR Code Preview */}
+            <div className="w-32 h-32 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center overflow-hidden relative group">
+              {qrCodeUrl ? (
+                <img src={qrCodeUrl} alt="Store QR Code" className="w-full h-full object-contain p-2" />
+              ) : (
+                <div className="text-center p-2 text-slate-400">
+                  <ImageIcon className="w-8 h-8 mx-auto mb-1 opacity-50" />
+                  <span className="text-[10px] font-semibold">No QR Code Uploaded</span>
+                </div>
+              )}
+            </div>
+
+            {/* Upload Action */}
+            <div className="md:col-span-2 space-y-3">
+              <label className="block text-xs font-semibold text-slate-700">Upload Digi QR (Interactive Crop & WebP Optimization)</label>
+              <div className="flex items-center space-x-3">
+                <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold px-4 py-2.5 rounded-xl border border-slate-300 text-xs flex items-center space-x-2 transition-colors">
+                  <Upload className="w-4 h-4 text-accent" />
+                  <span>{uploadingQrCode ? "Uploading QR Code..." : "Choose QR Image (PNG / JPG / WEBP)"}</span>
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    className="hidden" 
+                    onChange={handleQrCodeFileSelect}
+                    disabled={uploadingQrCode} 
+                  />
+                </label>
+                {qrCodeUrl && (
+                  <span className="text-[11px] text-green-600 font-semibold flex items-center space-x-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Cloudflare R2 Synced</span>
+                  </span>
+                )}
+              </div>
+              <Input 
+                label="Direct R2 QR Code URL" 
+                placeholder="https://your-r2-domain.com/qrcodes/SHOP_qr_123.webp"
+                value={qrCodeUrl} 
+                onChange={(e) => setQrCodeUrl(e.target.value)} 
               />
             </div>
           </div>
@@ -542,41 +687,95 @@ export default function ShopProfilePage() {
             </div>
           )}
 
-          {pricingMode === "custom_manual" && (
+           {pricingMode === "custom_manual" && (
             <div className="p-4 bg-amber-50/30 rounded-xl border border-amber-200/60 space-y-3">
               <p className="text-xs font-semibold text-slate-700">Enter Daily Rates for your Store (₹):</p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <Input
-                  label="22K Gold (₹/g)"
-                  type="number"
-                  placeholder="e.g. 6850"
-                  value={customRates.rate_22k || ""}
-                  onChange={(e) => setCustomRates({ ...customRates, rate_22k: parseFloat(e.target.value) || 0 })}
-                />
-                <Input
-                  label="24K Gold (₹/g)"
-                  type="number"
-                  placeholder="e.g. 7450"
-                  value={customRates.rate_24k || ""}
-                  onChange={(e) => setCustomRates({ ...customRates, rate_24k: parseFloat(e.target.value) || 0 })}
-                />
-                <Input
-                  label="18K Gold (₹/g)"
-                  type="number"
-                  placeholder="e.g. 5600"
-                  value={customRates.rate_18k || ""}
-                  onChange={(e) => setCustomRates({ ...customRates, rate_18k: parseFloat(e.target.value) || 0 })}
-                />
-                <Input
-                  label="Silver (₹/g)"
-                  type="number"
-                  placeholder="e.g. 92"
-                  value={customRates.rate_silver || ""}
-                  onChange={(e) => setCustomRates({ ...customRates, rate_silver: parseFloat(e.target.value) || 0 })}
-                />
+                {allowedMetals.includes("22k") && (
+                  <Input
+                    label="22K Gold (₹/g)"
+                    type="number"
+                    placeholder="e.g. 6850"
+                    value={customRates.rate_22k || ""}
+                    onChange={(e) => setCustomRates({ ...customRates, rate_22k: parseFloat(e.target.value) || 0 })}
+                  />
+                )}
+                {allowedMetals.includes("24k") && (
+                  <Input
+                    label="24K Gold (₹/g)"
+                    type="number"
+                    placeholder="e.g. 7450"
+                    value={customRates.rate_24k || ""}
+                    onChange={(e) => setCustomRates({ ...customRates, rate_24k: parseFloat(e.target.value) || 0 })}
+                  />
+                )}
+                {allowedMetals.includes("18k") && (
+                  <Input
+                    label="18K Gold (₹/g)"
+                    type="number"
+                    placeholder="e.g. 5600"
+                    value={customRates.rate_18k || ""}
+                    onChange={(e) => setCustomRates({ ...customRates, rate_18k: parseFloat(e.target.value) || 0 })}
+                  />
+                )}
+                {allowedMetals.includes("9k") && (
+                  <Input
+                    label="9K Gold (₹/g)"
+                    type="number"
+                    placeholder="e.g. 2800"
+                    value={customRates.rate_9k || ""}
+                    onChange={(e) => setCustomRates({ ...customRates, rate_9k: parseFloat(e.target.value) || 0 })}
+                  />
+                )}
+                {allowedMetals.includes("silver") && (
+                  <Input
+                    label="Silver (₹/g)"
+                    type="number"
+                    placeholder="e.g. 92"
+                    value={customRates.rate_silver || ""}
+                    onChange={(e) => setCustomRates({ ...customRates, rate_silver: parseFloat(e.target.value) || 0 })}
+                  />
+                )}
               </div>
             </div>
           )}
+        </div>
+
+        {/* Section: Weekly Category Schedule */}
+        <div className="space-y-4 pt-2">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <div className="flex items-center space-x-2">
+              <Calendar className="w-5 h-5 text-accent" />
+              <h3 className="font-bold text-sm text-primary uppercase tracking-wider">Weekly Category Schedule</h3>
+            </div>
+            <span className="text-[11px] text-slate-400 font-medium">Customize jewelry video category by day of the week</span>
+          </div>
+
+          <p className="text-xs text-slate-500">
+            By default, all stores receive our standard daily rotation of categories. To override the rotation for specific days (e.g. Necklace on Monday, Rings on Tuesday), select them below:
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"].map((day) => (
+              <div key={day} className="flex flex-col space-y-1.5 p-3 bg-slate-50/50 rounded-xl border border-slate-100">
+                <label className="text-xs font-bold text-slate-700 capitalize">{day}</label>
+                <select
+                  value={weeklyCategories[day] || "none"}
+                  onChange={(e) => setWeeklyCategories({ ...weeklyCategories, [day]: e.target.value })}
+                  className="w-full text-xs bg-white rounded-lg border border-slate-200 p-2 font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="none">Default (Auto Rotate)</option>
+                  <option value="Necklace">Necklace</option>
+                  <option value="Rings">Rings</option>
+                  <option value="Earrings">Earrings</option>
+                  <option value="Ankle Chains">Ankle Chains</option>
+                  <option value="Chains">Chains</option>
+                  <option value="Bracelets/Bangles">Bracelets/Bangles</option>
+                  <option value="Maalai">Maalai</option>
+                </select>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Section 3: Credentials (Optional) */}
@@ -614,13 +813,13 @@ export default function ShopProfilePage() {
         </div>
       </form>
 
-      {/* Interactive Logo Crop Modal */}
+      {/* Interactive Logo/QR Crop Modal */}
       <LogoCropModal 
         isOpen={cropModalOpen}
-        imageSrc={selectedImageSrc}
+        imageSrc={selectedImageSrc || ""}
         shopCode={shopCode || "SHOP"}
         onClose={() => setCropModalOpen(false)}
-        onCropComplete={handleCroppedLogoUpload}
+        onCropComplete={handleCropComplete}
       />
     </div>
   );

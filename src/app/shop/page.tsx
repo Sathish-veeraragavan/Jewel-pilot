@@ -17,6 +17,76 @@ export default function ShopPage() {
   const [canShare, setCanShare] = useState(false);
   const [sharing, setSharing] = useState(false);
 
+  // Rotation state variables
+  const [rotationStatus, setRotationStatus] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
+  const [rotationUrl, setRotationUrl] = useState<string | null>(null);
+  const [rotationError, setRotationError] = useState<string | null>(null);
+
+  const triggerRotation = async (angle: "90_cw" | "90_ccw") => {
+    if (!shopDetails?.todayVideo?.videoUrl || !shopDetails?.todayVideo?.jobId) {
+      alert("No active video found to rotate.");
+      return;
+    }
+
+    setRotationStatus("pending");
+    setRotationError(null);
+    setRotationUrl(null);
+
+    try {
+      const res = await fetch("/api/media/rotate-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_video_url: shopDetails.todayVideo.videoUrl,
+          angle,
+          job_id: shopDetails.todayVideo.jobId
+        })
+      });
+
+      const data = await res.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      if (data.status === "Completed") {
+        setRotationStatus("completed");
+        setRotationUrl(data.url);
+        window.location.href = `/api/media/download-video?url=${encodeURIComponent(data.url)}&filename=${shopDetails.shopCode}_Daily_Rates_Reel_${angle}.mp4`;
+      } else {
+        pollRotationJob(data.jobId, angle);
+      }
+    } catch (err: any) {
+      setRotationStatus("failed");
+      setRotationError(err.message || "Failed to initiate rotation");
+    }
+  };
+
+  const pollRotationJob = (jobId: string, angle: string) => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/media/rotate-video?jobId=${jobId}`);
+        const data = await res.json();
+
+        if (data.status === "Completed") {
+          clearInterval(interval);
+          setRotationStatus("completed");
+          setRotationUrl(data.url);
+          window.location.href = `/api/media/download-video?url=${encodeURIComponent(data.url)}&filename=${shopDetails.shopCode}_Daily_Rates_Reel_${angle}.mp4`;
+        } else if (data.status === "Failed") {
+          clearInterval(interval);
+          setRotationStatus("failed");
+          setRotationError(data.error || "Rotation failed");
+        } else if (data.status === "Processing") {
+          setRotationStatus("processing");
+        }
+      } catch (err) {
+        clearInterval(interval);
+        setRotationStatus("failed");
+        setRotationError("Failed checking rotation status");
+      }
+    }, 2000);
+  };
+
   useEffect(() => {
     if (typeof navigator !== "undefined" && (navigator as any).share) {
       setCanShare(true);
@@ -123,7 +193,7 @@ export default function ShopPage() {
     );
   }
 
-  const { subscription, selectedRates, pricingMode } = shopDetails;
+  const { subscription, selectedRates, pricingMode, todayManualRenderCount = 0 } = shopDetails;
   const isExpired = subscription?.isExpired || subscription?.status === "expired";
   const isCustomManual = pricingMode === "custom_manual";
 
@@ -167,9 +237,12 @@ export default function ShopPage() {
             <div className="bg-white p-4 sm:p-6 rounded-2xl border border-amber-200 shadow-sm space-y-4 bg-gradient-to-r from-amber-50/30 to-white">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-100 pb-3">
                 <div>
-                  <h3 className="font-bold text-base text-primary flex items-center gap-2">
+                  <h3 className="font-bold text-base text-primary flex flex-wrap items-center gap-2">
                     <span>Manual Daily Rates</span>
                     <span className="text-[10px] uppercase font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md">Manual Mode Active</span>
+                    <span className={`text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-md border ${todayManualRenderCount >= 2 ? "bg-red-50 text-red-700 border-red-200 animate-pulse" : "bg-blue-50 text-blue-700 border-blue-200"}`}>
+                      Render Limit: {todayManualRenderCount} / 2 Today
+                    </span>
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
                     Enter today's manual prices for your selected overlay slots. Click Save & Render to stamp and generate today's video.
@@ -193,13 +266,20 @@ export default function ShopPage() {
                           placeholder="Enter price"
                           value={manualRates[rateKey as keyof typeof manualRates] || ""}
                           onChange={(e) => setManualRates({ ...manualRates, [rateKey]: Number(e.target.value) })}
-                          className="w-full pl-7 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent font-semibold"
+                          disabled={todayManualRenderCount >= 2}
+                          className="w-full pl-7 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent font-semibold disabled:bg-slate-100 disabled:text-slate-400"
                         />
                       </div>
                     </div>
                   );
                 })}
               </div>
+
+              {todayManualRenderCount >= 2 && (
+                <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-xs font-semibold">
+                  ⚠️ The daily limit to generate videos (max 2/day) has been reached. Please try again tomorrow.
+                </div>
+              )}
 
               {saveMessage && (
                 <div className={`p-3 rounded-xl text-xs font-semibold ${saveMessage.startsWith("Error") ? "bg-red-50 text-red-700 border border-red-200" : "bg-green-50 text-green-700 border border-green-200"}`}>
@@ -210,7 +290,7 @@ export default function ShopPage() {
               <button
                 type="button"
                 onClick={handleSaveAndRender}
-                disabled={savingManual}
+                disabled={savingManual || todayManualRenderCount >= 2}
                 className="w-full sm:w-auto bg-accent hover:bg-yellow-400 text-primary font-bold py-2.5 px-6 rounded-xl shadow-md transition-all text-xs flex items-center justify-center space-x-2 disabled:opacity-50"
               >
                 {savingManual ? (
@@ -316,6 +396,45 @@ export default function ShopPage() {
                     <Share2 className="w-4 h-4" />
                     <span>Share Video Link</span>
                   </button>
+                )}
+              </div>
+            )}
+
+            {/* Rotate & Download Section */}
+            {!isExpired && shopDetails?.todayVideo && shopDetails.todayVideo.videoUrl && (
+              <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-xl max-w-[340px] sm:max-w-sm mx-auto text-center space-y-3 shadow-sm">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Rotate & Download (90° Left / Right)</p>
+                <div className="flex justify-center gap-3">
+                  <button
+                    disabled={rotationStatus === "pending" || rotationStatus === "processing"}
+                    onClick={() => triggerRotation("90_ccw")}
+                    className="flex-1 py-2 px-3 border border-slate-300 hover:bg-slate-100 rounded-lg text-xs font-bold text-slate-700 flex items-center justify-center space-x-1 disabled:opacity-50 transition-all cursor-pointer bg-white"
+                  >
+                    <span>↺ Rotate Left</span>
+                  </button>
+                  <button
+                    disabled={rotationStatus === "pending" || rotationStatus === "processing"}
+                    onClick={() => triggerRotation("90_cw")}
+                    className="flex-1 py-2 px-3 border border-slate-300 hover:bg-slate-100 rounded-lg text-xs font-bold text-slate-700 flex items-center justify-center space-x-1 disabled:opacity-50 transition-all cursor-pointer bg-white"
+                  >
+                    <span>Rotate Right ↻</span>
+                  </button>
+                </div>
+                {(rotationStatus === "pending" || rotationStatus === "processing") && (
+                  <div className="text-xs text-blue-600 font-semibold flex items-center justify-center space-x-1.5 animate-pulse mt-2">
+                    <span className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-ping"></span>
+                    <span>{rotationStatus === "processing" ? "Processing rotation on VPS..." : "Queueing rotation task..."}</span>
+                  </div>
+                )}
+                {rotationStatus === "completed" && rotationUrl && (
+                  <div className="text-xs text-green-600 font-semibold flex items-center justify-center space-x-1 mt-2">
+                    <span>✓ Ready! Downloading rotated video...</span>
+                  </div>
+                )}
+                {rotationStatus === "failed" && (
+                  <div className="text-xs text-red-600 font-semibold mt-2">
+                    <span>Failed: {rotationError}</span>
+                  </div>
                 )}
               </div>
             )}

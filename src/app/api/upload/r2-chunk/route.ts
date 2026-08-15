@@ -30,9 +30,10 @@ export async function POST(request: Request) {
       const filename = url.searchParams.get("filename") || "video.mp4";
       const contentType = url.searchParams.get("contentType") || "video/mp4";
       const prefix = url.searchParams.get("prefix") || "ASSET";
+      const category = url.searchParams.get("category") || undefined;
 
-      console.log(`[R2 Multipart Initiate] Initiating upload for: ${filename} (prefix: ${prefix}, contentType: ${contentType})`);
-      const data = await initiateR2MultipartUpload(filename, contentType, prefix);
+      console.log(`[R2 Multipart Initiate] Initiating upload for: ${filename} (prefix: ${prefix}, contentType: ${contentType}, category: ${category})`);
+      const data = await initiateR2MultipartUpload(filename, contentType, prefix, category);
       return NextResponse.json(data);
     }
 

@@ -47,6 +47,8 @@ export default function TemplateManagerPage() {
   const [occasionId, setOccasionId] = useState("");
   const [placeholderCount, setPlaceholderCount] = useState(3);
   const [editorConfig, setEditorConfig] = useState<any>(null);
+  const [shops, setShops] = useState<any[]>([]);
+  const [allowedShopIds, setAllowedShopIds] = useState<string[]>([]);
 
   // Occasions State
   const [occasions, setOccasions] = useState<any[]>([]);
@@ -92,10 +94,21 @@ export default function TemplateManagerPage() {
     }
   };
 
+  const fetchShops = async () => {
+    try {
+      const res = await fetch("/api/shops");
+      const data = await res.json();
+      setShops(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Failed to fetch shops", err);
+    }
+  };
+
   useEffect(() => {
     fetchTemplates();
     fetchIcons();
     fetchOccasions();
+    fetchShops();
   }, []);
 
   const openVisualEditor = (template?: any) => {
@@ -109,6 +122,7 @@ export default function TemplateManagerPage() {
       setOccasionId(template.occasion_id || "");
       setPlaceholderCount(template.placeholder_count || 3);
       setEditorConfig(template.config || null);
+      setAllowedShopIds(template.allowed_shop_ids || []);
     } else {
       setActiveTemplate(null);
       setTemplateName("New Luxury Template");
@@ -119,6 +133,7 @@ export default function TemplateManagerPage() {
       setOccasionId("");
       setPlaceholderCount(3);
       setEditorConfig(null);
+      setAllowedShopIds([]);
     }
     setActiveTab("editor");
   };
@@ -139,7 +154,8 @@ export default function TemplateManagerPage() {
       placeholder_count: placeholderCount,
       version: activeTemplate?.version || "1.0.0",
       status: templateStatus || "active",
-      config: configData
+      config: configData,
+      allowed_shop_ids: allowedShopIds.length > 0 ? allowedShopIds : null
     };
 
     try {
@@ -485,6 +501,33 @@ export default function TemplateManagerPage() {
               value={bgImageUrl} 
               onChange={(e) => setBgImageUrl(e.target.value)} 
             />
+            <div className="flex flex-col space-y-1 col-span-1 md:col-span-6 bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Restricted/Allowed Shops (Leave empty for public templates)</label>
+              <div className="flex flex-wrap gap-2 max-h-[80px] overflow-y-auto pt-1">
+                {shops.map((shop) => {
+                  const isChecked = allowedShopIds.includes(shop.id);
+                  return (
+                    <label key={shop.id} className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${
+                      isChecked ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                    }`}>
+                      <input 
+                        type="checkbox" 
+                        checked={isChecked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setAllowedShopIds([...allowedShopIds, shop.id]);
+                          } else {
+                            setAllowedShopIds(allowedShopIds.filter(id => id !== shop.id));
+                          }
+                        }}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                      <span>{shop.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
           <CanvaTemplateEditor 

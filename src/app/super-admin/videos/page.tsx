@@ -14,15 +14,6 @@ import {
 } from "@/components/ui/reusable";
 import { Film, Upload, Eye, Trash2, RefreshCw } from "lucide-react";
 
-const CATEGORY_OPTIONS = [
-  { label: "Necklace (NC)", value: "Necklace" },
-  { label: "Bracelets/Bangles (BG)", value: "Bracelets/Bangles" },
-  { label: "Rings (RG)", value: "Rings" },
-  { label: "Earrings (ER)", value: "Earrings" },
-  { label: "Ankle Chains (AC)", value: "Ankle Chains" },
-  { label: "Chains (CH)", value: "Chains" }
-];
-
 export default function VideoLibraryPage() {
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -31,6 +22,21 @@ export default function VideoLibraryPage() {
   
   // Master lists for metadata options
   const [occasions, setOccasions] = useState<any[]>([]);
+  const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([
+    { label: "Necklace (NC)", value: "Necklace" },
+    { label: "Bracelets/Bangles (BG)", value: "Bracelets/Bangles" },
+    { label: "Rings (RG)", value: "Rings" },
+    { label: "Earrings (ER)", value: "Earrings" },
+    { label: "Ankle Chains (AC)", value: "Ankle Chains" },
+    { label: "Chains (CH)", value: "Chains" }
+  ]);
+
+  // Add category state
+  const [addCategoryOpen, setAddCategoryOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategoryCode, setNewCategoryCode] = useState("");
+  const [creatingCategory, setCreatingCategory] = useState(false);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
 
   // Filter conditions
   const [searchQuery, setSearchQuery] = useState("");
@@ -78,9 +84,51 @@ export default function VideoLibraryPage() {
     }
   };
 
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch("/api/video-categories");
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        setCategoryOptions(data.map((c: any) => ({
+          label: `${c.name} (${c.code})`,
+          value: c.name
+        })));
+      }
+    } catch (err) {
+      console.error("Error fetching categories:", err);
+    }
+  };
+
+  const handleCreateCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreatingCategory(true);
+    setCategoryError(null);
+    try {
+      const res = await fetch("/api/video-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newCategoryName, code: newCategoryCode })
+      });
+      const data = await res.json();
+      if (data.error) {
+        setCategoryError(data.error);
+      } else {
+        setNewCategoryName("");
+        setNewCategoryCode("");
+        setAddCategoryOpen(false);
+        await fetchCategories();
+      }
+    } catch (err) {
+      setCategoryError("Failed to create category");
+    } finally {
+      setCreatingCategory(false);
+    }
+  };
+
   useEffect(() => {
     fetchVideos();
     fetchMetadata();
+    fetchCategories();
   }, []);
 
   const handleSyncR2 = async () => {
@@ -190,7 +238,8 @@ export default function VideoLibraryPage() {
         body: JSON.stringify({
           filename: file.name,
           contentType: file.type || "video/mp4",
-          prefix: generatedCode
+          prefix: generatedCode,
+          category: selectedCategory
         })
       });
       const presignedData = await presignedRes.json();
@@ -270,9 +319,17 @@ export default function VideoLibraryPage() {
       {/* Header */}
       <PageHeader 
         title="Branded Video Library"
-        description="Manage promotional video assets categorized into Necklace (NC), Bracelets/Bangles (BG), Rings (RG), Earrings (ER), Ankle Chains (AC), and Chains (CH) - Max 50 MB per video."
+        description="Manage promotional video assets categorized into traditional gold designs and custom categories. Max 50 MB per video."
         action={
           <div className="flex items-center space-x-3">
+            <Button 
+              variant="outline" 
+              onClick={() => setAddCategoryOpen(true)}
+              className="flex items-center space-x-2 border-accent text-primary hover:bg-amber-50"
+            >
+              <span className="text-accent font-bold">+</span>
+              <span>Add Category</span>
+            </Button>
             <Button 
               variant="outline" 
               onClick={handleSyncR2} 
@@ -282,7 +339,7 @@ export default function VideoLibraryPage() {
               <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin text-accent" : ""}`} />
               <span>{syncing ? "Syncing..." : "Sync R2 Storage"}</span>
             </Button>
-            <Button onClick={() => { handleCategorySelect("Necklace"); setWizardStep(1); setWizardOpen(true); }} className="flex items-center space-x-2">
+            <Button onClick={() => { handleCategorySelect(categoryOptions[0]?.value || "Necklace"); setWizardStep(1); setWizardOpen(true); }} className="flex items-center space-x-2">
               <Upload className="w-4 h-4" />
               <span>Upload New Video</span>
             </Button>
@@ -316,7 +373,7 @@ export default function VideoLibraryPage() {
           onChange={(e) => setCategoryFilter(e.target.value)}
           options={[
             { label: "Category: All", value: "" },
-            ...CATEGORY_OPTIONS
+            ...categoryOptions
           ]}
         />
         <Select 
@@ -438,7 +495,7 @@ export default function VideoLibraryPage() {
                 required 
                 value={selectedCategory} 
                 onChange={(e) => handleCategorySelect(e.target.value)}
-                options={CATEGORY_OPTIONS}
+                options={categoryOptions}
               />
 
               <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl flex items-center justify-between text-xs">
@@ -603,6 +660,41 @@ export default function VideoLibraryPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Add Category Modal */}
+      <Modal isOpen={addCategoryOpen} onClose={() => setAddCategoryOpen(false)} title="Add New Video Category">
+        <form onSubmit={handleCreateCategory} className="space-y-4">
+          {categoryError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-xs font-medium">
+              {categoryError}
+            </div>
+          )}
+          <Input 
+            label="Category Name (e.g. Pendant)" 
+            required 
+            value={newCategoryName} 
+            onChange={(e) => setNewCategoryName(e.target.value)} 
+            placeholder="Pendant"
+          />
+          <Input 
+            label="Prefix Code (2-5 Characters, e.g. PD)" 
+            required 
+            value={newCategoryCode} 
+            onChange={(e) => setNewCategoryCode(e.target.value)} 
+            placeholder="PD"
+            maxLength={5}
+          />
+          <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl text-xs text-muted-foreground">
+            Adding this category will automatically create a virtual directory <strong>videos/{newCategoryName || 'CategoryName'}/</strong> in your Cloudflare R2 bucket.
+          </div>
+          <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100">
+            <Button variant="outline" type="button" onClick={() => setAddCategoryOpen(false)}>Cancel</Button>
+            <Button type="submit" disabled={creatingCategory}>
+              {creatingCategory ? "Creating..." : "Create Category"}
+            </Button>
+          </div>
+        </form>
       </Modal>
     </div>
   );

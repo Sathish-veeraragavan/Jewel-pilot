@@ -18,14 +18,15 @@ import {
   Eye, 
   Sparkles,
   Upload,
-  RefreshCw
+  RefreshCw,
+  Crop
 } from "lucide-react";
 import { Button, Input, Select, Modal, LoadingSpinner } from "./reusable";
 
 export interface CanvasElement {
   id: string;
   name: string;
-  type: "shop_logo" | "shop_name" | "shop_phone" | "shop_address" | "rate_24k" | "rate_22k" | "rate_silver" | "occasion_text" | "custom_text" | "icon_image" |
+  type: "shop_logo" | "shop_qr" | "shop_name" | "shop_phone" | "shop_address" | "rate_24k" | "rate_22k" | "rate_silver" | "occasion_text" | "custom_text" | "icon_image" |
         "placeholder_1_title" | "placeholder_1_price" | "placeholder_2_title" | "placeholder_2_price" | "placeholder_3_title" | "placeholder_3_price" | "placeholder_4_title" | "placeholder_4_price" | "date" | "todays_rate_header";
   placeholder: string;
   x: number; // percentage 0-100
@@ -929,6 +930,20 @@ export default function CanvaTemplateEditor({
 
               <button 
                 type="button"
+                onClick={() => addElement({ name: "Shop QR Code", type: "shop_qr", placeholder: "{{shop_qr}}", w: 15, h: 15 })}
+                className="w-full text-left p-3 rounded-xl border border-slate-200 hover:border-accent hover:bg-amber-50/50 flex items-center space-x-3 transition-colors text-xs font-semibold text-primary"
+              >
+                <div className="p-2 bg-purple-100 text-purple-600 rounded-lg">
+                  <Crop className="w-4 h-4" />
+                </div>
+                <div>
+                  <div>Shop QR Code</div>
+                  <div className="text-[10px] text-slate-400 font-mono">{"{{shop_qr}}"}</div>
+                </div>
+              </button>
+
+              <button 
+                type="button"
                 onClick={() => addElement({ name: "Shop Name", type: "shop_name", placeholder: "{{shop_name}}", fontSize: 75, color: "#FFFFFF" })}
                 className="w-full text-left p-3 rounded-xl border border-slate-200 hover:border-accent hover:bg-amber-50/50 flex items-center space-x-3 transition-colors text-xs font-semibold text-primary"
               >
@@ -1371,9 +1386,11 @@ export default function CanvaTemplateEditor({
               </div>
 
               <div>
-                <p className="text-[10px] uppercase font-extrabold text-slate-400 tracking-wider mb-2">Preset Flourishes & Shapes (Flippable)</p>
+                <p className="text-[10px] uppercase font-extrabold text-slate-400 tracking-wider mb-2">Preset Flourishes, Shapes & Icons (Flippable)</p>
                 <div className="grid grid-cols-4 gap-2 mb-3">
                   {[
+                    { name: "WhatsApp Green", url: "/presets/whatsapp_green.svg", w: 4, h: 4 },
+                    { name: "WhatsApp White", url: "/presets/whatsapp_white.svg", w: 4, h: 4 },
                     { name: "Gold Spear Flourish", url: "/presets/spear_flourish_gold.png", w: 15, h: 8 },
                     { name: "Red Spear Flourish", url: "/presets/spear_flourish_red.png", w: 15, h: 8 },
                     { name: "White Spear Flourish", url: "/presets/spear_flourish_white.png", w: 15, h: 8 },
@@ -1499,6 +1516,16 @@ export default function CanvaTemplateEditor({
                   <div className="w-full h-full border-2 border-dashed border-amber-400 bg-amber-400/20 text-accent font-bold text-[10px] flex items-center justify-center rounded-lg">
                     Shop Logo
                   </div>
+                ) : el.type === "shop_qr" ? (
+                  <div className="w-full h-full relative border-2 border-dashed border-purple-400 bg-purple-400/20 text-purple-600 font-bold text-[10px] flex items-center justify-center rounded-lg">
+                    <div 
+                      className="absolute -top-5 left-0 right-0 text-center font-bold text-[#E2C799] pointer-events-none select-none tracking-wide"
+                      style={{ fontSize: '10px' }}
+                    >
+                      DIGI GOLD
+                    </div>
+                    Digi QR Code
+                  </div>
                 ) : el.type === "icon_image" && el.iconUrl ? (
                   <img 
                     src={el.iconUrl} 
@@ -1602,43 +1629,45 @@ export default function CanvaTemplateEditor({
             </div>
 
             {/* Styling */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[11px] font-semibold text-slate-650">Font Size: {selectedElement.fontSize || 50}px</label>
-                <input 
-                  type="range" min="12" max="200" step="1" 
-                  value={selectedElement.fontSize || 50} 
-                  onChange={(e) => updateSelectedElement({ fontSize: parseInt(e.target.value, 10) })}
-                  className="w-full accent-amber-500 mt-1" 
-                />
-              </div>
-              <div>
-                <label className="text-[11px] font-semibold text-slate-650 block">Text Color</label>
-                <input 
-                  type="color" 
-                  value={selectedElement.color || "#FFFFFF"} 
-                  onChange={(e) => updateSelectedElement({ color: e.target.value })}
-                  className="w-full h-8 rounded-lg cursor-pointer border border-slate-200 mt-1" 
-                />
-              </div>
-            </div>
+            {selectedElement.type !== "shop_logo" && selectedElement.type !== "shop_qr" && selectedElement.type !== "icon_image" && (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-650">Font Size: {selectedElement.fontSize || 50}px</label>
+                    <input 
+                      type="range" min="12" max="200" step="1" 
+                      value={selectedElement.fontSize || 50} 
+                      onChange={(e) => updateSelectedElement({ fontSize: parseInt(e.target.value, 10) })}
+                      className="w-full accent-amber-500 mt-1" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-650 block">Text Color</label>
+                    <input 
+                      type="color" 
+                      value={selectedElement.color || "#FFFFFF"} 
+                      onChange={(e) => updateSelectedElement({ color: e.target.value })}
+                      className="w-full h-8 rounded-lg cursor-pointer border border-slate-200 mt-1" 
+                    />
+                  </div>
+                </div>
 
-            {/* Font Family Selector */}
-            {selectedElement.type !== "shop_logo" && selectedElement.type !== "icon_image" && (
-              <div>
-                <Select
-                  label="Font Family"
-                  value={selectedElement.fontFamily || "Outfit-Bold"}
-                  onChange={(e) => updateSelectedElement({ fontFamily: e.target.value })}
-                  options={[
-                    { label: "Outfit Elegant (Default)", value: "Outfit-Bold" },
-                    { label: "Playfair Display Royal (Classic)", value: "PlayfairDisplay-Bold" },
-                    { label: "Cinzel Decorative (Luxury)", value: "Cinzel-Bold" },
-                    { label: "Montserrat Modern (Sleek)", value: "Montserrat-Bold" },
-                    { label: "Lora Serif (Premium)", value: "Lora-Bold" }
-                  ]}
-                />
-              </div>
+                {/* Font Family Selector */}
+                <div>
+                  <Select
+                    label="Font Family"
+                    value={selectedElement.fontFamily || "Outfit-Bold"}
+                    onChange={(e) => updateSelectedElement({ fontFamily: e.target.value })}
+                    options={[
+                      { label: "Outfit Elegant (Default)", value: "Outfit-Bold" },
+                      { label: "Playfair Display Royal (Classic)", value: "PlayfairDisplay-Bold" },
+                      { label: "Cinzel Decorative (Luxury)", value: "Cinzel-Bold" },
+                      { label: "Montserrat Modern (Sleek)", value: "Montserrat-Bold" },
+                      { label: "Lora Serif (Premium)", value: "Lora-Bold" }
+                    ]}
+                  />
+                </div>
+              </>
             )}
 
                       {/* Bg Color Picker & Bg Opacity */}
@@ -1789,6 +1818,7 @@ export default function CanvaTemplateEditor({
                   onChange={(e: any) => updateSelectedElement({ animationType: e.target.value })}
                   className="w-full p-1.5 border border-slate-200 rounded-lg text-[11px] mt-1 bg-white"
                 >
+                  <option value="none">⏱ Instant (No Animation)</option>
                   <option value="fade">✨ Fade In</option>
                   <option value="slide_left">⬅ Slide Left</option>
                   <option value="slide_right">➡ Slide Right</option>

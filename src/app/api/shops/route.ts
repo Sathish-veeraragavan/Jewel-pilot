@@ -22,7 +22,7 @@ export async function GET(request: Request) {
       { data: shops, error },
       { data: outroSettings }
     ] = await Promise.all([
-      supabaseAdmin.from("shops").select(`*, subscriptions(*)`).order("created_at", { ascending: false }),
+      supabaseAdmin.from("shops").select(`*, subscriptions(*), states(name)`).order("created_at", { ascending: false }),
       supabaseAdmin.from("system_settings").select("setting_key, value").like("setting_key", "outro_video_%")
     ]);
 
@@ -94,7 +94,7 @@ export async function PUT(request: Request) {
 
   try {
     const body = await request.json();
-    const { id, action, logo_url, outro_video_url, selected_rates, association_id, plan_name, start_date, end_date } = body;
+    const { id, action, logo_url, outro_video_url, selected_rates, association_id, plan_name, start_date, end_date, allowed_metals, weekly_categories } = body;
 
     if (!id) {
       return NextResponse.json({ error: "Missing shop ID" }, { status: 400 });
@@ -106,6 +106,8 @@ export async function PUT(request: Request) {
       if (outro_video_url !== undefined) updates.outro_video_url = outro_video_url;
       if (selected_rates !== undefined) updates.selected_rates = selected_rates;
       if (association_id !== undefined) updates.association_id = association_id;
+      if (allowed_metals !== undefined) updates.allowed_metals = allowed_metals;
+      if (weekly_categories !== undefined) updates.weekly_categories = weekly_categories;
 
       const { data, error } = await supabaseAdmin
         .from("shops")

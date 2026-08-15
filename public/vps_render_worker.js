@@ -257,7 +257,7 @@ function applyImageAnimation(el, wPx, hPx, xPx, yPx, startT, fadeDur, inputIdx, 
   // 2. Add entry animations (fade / slide / zoom / sparkle / bounce / block)
   let overlayX = `${xPx}`;
   let overlayY = `${yPx}`;
-  const baseFadeFilter = `,fade=in:st=${startT}:d=${fadeDur}:alpha=1`;
+  const baseFadeFilter = (animType === "none" || animType === "instant") ? "" : `,fade=in:st=${startT}:d=${fadeDur}:alpha=1`;
 
   if (animType === "slide_left") {
     overlayX = `${xPx}+if(lt(t,${startT}),300,if(lt(t,${startT+fadeDur}),300*(1-(t-${startT})/${fadeDur}),0))`;
@@ -361,13 +361,48 @@ function applyImageAnimation(el, wPx, hPx, xPx, yPx, startT, fadeDur, inputIdx, 
 //  MAIN VIDEO PROCESSING PIPELINE
 // ══════════════════════════════════════════════════════════════
 async function processVideoJob(job) {
+  if (job.is_rotation) {
+    const jobDir = path.join(TEMP_DIR, `render_${job.id}`);
+    if (!fs.existsSync(jobDir)) fs.mkdirSync(jobDir, { recursive: true });
+
+    const sourceVideoPath = path.join(jobDir, "source_video.mp4");
+    const rotatedVideoPath = path.join(DOWNLOADS_DIR, `${job.id}_final.mp4`);
+
+    console.log(`\n[Job ${job.id}] Downloading source video for rotation: ${job.source_video_url}`);
+    await downloadFile(getAbsoluteUrl(job.source_video_url), sourceVideoPath);
+
+    let transposeFilter = "transpose=1";
+    if (job.angle === "90_ccw") {
+      transposeFilter = "transpose=2";
+    } else if (job.angle === "180") {
+      transposeFilter = "transpose=2,transpose=2";
+    }
+
+    const cmd = `ffmpeg -y -i "${sourceVideoPath}" -vf "${transposeFilter}" -c:a copy "${rotatedVideoPath}"`;
+    console.log(`[Job ${job.id}] Executing rotation: ${cmd}`);
+    execSync(cmd, { stdio: "inherit" });
+
+    fs.rmSync(jobDir, { recursive: true, force: true });
+
+    const outputUrl = `http://${VPS_PUBLIC_IP}:${VPS_PORT}/downloads/${job.id}_final.mp4`;
+    console.log(`[Job ${job.id}] Output URL: ${outputUrl}`);
+    return outputUrl;
+  }
+
   const jobDir = path.join(TEMP_DIR, `render_${job.id}`);
   if (!fs.existsSync(jobDir)) fs.mkdirSync(jobDir, { recursive: true });
+
+  const config = job.template_config || {};
+  const elements = config.elements || [];
+  const hasQrElement = elements.some(el => el.type === "shop_qr" && el.visible !== false);
+  const hasQrCode = !!job.qr_code_url && hasQrElement;
 
   // File paths
   const baseVideoPath = path.join(jobDir, "base_video.mp4");
   const logoExt = job.logo_url ? (job.logo_url.split('?')[0].split('.').pop() || 'webp') : 'webp';
   const logoPath = path.join(jobDir, `logo.${logoExt}`);
+  const qrExt = hasQrCode ? (job.qr_code_url.split('?')[0].split('.').pop() || 'webp') : 'webp';
+  const qrPath = path.join(jobDir, `qrcode.${qrExt}`);
   const outroPath = path.join(jobDir, "outro.mp4");
   const audioTrackPath = path.join(jobDir, "bg_music.mp3");
 
@@ -385,6 +420,7 @@ async function processVideoJob(job) {
 
   console.log(`[Job ${job.id}] Video: ${baseVideoUrl}`);
   console.log(`[Job ${job.id}] Logo:  ${logoUrl}`);
+  if (hasQrCode) console.log(`[Job ${job.id}] QR Code: ${job.qr_code_url}`);
   console.log(`[Job ${job.id}] Outro: ${outroUrl}`);
   console.log(`[Job ${job.id}] Music: ${audioUrl || "None"}`);
 
@@ -394,10 +430,9 @@ async function processVideoJob(job) {
     downloadFile(outroUrl, outroPath),
   ];
   if (audioUrl) downloads.push(downloadFile(audioUrl, audioTrackPath));
+  if (hasQrCode) downloads.push(downloadFile(getAbsoluteUrl(job.qr_code_url), qrPath));
 
   // Dynamic font downloads
-  const config = job.template_config || {};
-  const elements = config.elements || [];
   for (const el of elements) {
     const fontName = el.font_family || el.fontFamily;
     if (fontName && PREMIUM_FONTS[fontName]) {
@@ -470,6 +505,7 @@ async function processVideoJob(job) {
   // Parse template config for logo position + text elements
 
   let logoX = 440, logoY = 100, logoW = 200, logoH = 200;
+  let qrX = 0, qrY = 0, qrW = 0, qrH = 0, qrEl = null;
   const drawtextFilters = [];
 
   for (const el of elements) {
@@ -488,6 +524,43 @@ async function processVideoJob(job) {
 
     if (el.type === "shop_logo") {
       logoX = xPx; logoY = yPx; logoW = wPx; logoH = hPx;
+      continue;
+    }
+
+    if (el.type === "shop_qr") {
+      qrX = xPx; qrY = yPx; qrW = wPx; qrH = hPx;
+      qrEl = el;
+
+      if (hasQrCode) {
+        const headerTextSize = Math.round(hPx * 0.18); // ~18% of QR code height
+        const headerFontPath = path.join(FONTS_DIR, "Outfit-Bold.ttf");
+        const resolvedFont = fs.existsSync(headerFontPath) ? headerFontPath : FONT_PATH;
+        
+        const animType = el.animation_type ?? el.animationType ?? "fade";
+        const startT = 0.2;
+        const fadeDur = 0.5;
+        const qrOpacity = (el.opacity ?? 100) / 100;
+        const headerAlphaExpr = (animType === "none" || animType === "instant")
+          ? `(${qrOpacity}*if(lt(t,${startT}),0,1))`
+          : `(${qrOpacity}*if(lt(t,${startT}),0,if(lt(t,${startT + fadeDur}),(t-${startT})/${fadeDur},1)))`;
+
+        let headerFilter = `drawtext=text='DIGI GOLD'`;
+        headerFilter += `:x='${xPx} + (${wPx} - tw)/2':y='${yPx} - th - 12'`;
+        headerFilter += `:fontsize=${headerTextSize}`;
+        headerFilter += `:fontcolor=#E2C799`; // Gold/Yellow hex matching reference image
+        headerFilter += `:fontfile='${resolvedFont}'`;
+        headerFilter += `:alpha='${headerAlphaExpr}'`;
+
+        drawtextFilters.push({
+          filter: headerFilter,
+          el: el,
+          xPx: xPx,
+          yPx: yPx,
+          wPx: wPx,
+          hPx: hPx,
+          startT: startT
+        });
+      }
       continue;
     }
 
@@ -597,16 +670,7 @@ async function processVideoJob(job) {
       rawPlaceholder.includes("1gm") ||
       rawPlaceholder.includes("8gm");
 
-    if (isRateSlot) {
-      if (yPct < 12) startT = 0.4;
-      else if (yPct >= 12 && yPct < 25) startT = 0.9;
-      else if (yPct >= 25 && yPct < 45) startT = 1.4;
-      else startT = 1.9;
-    } else if (elType === "occasion_text" || elName.includes("occasion") || elName.includes("banner")) {
-      startT = 2.4;
-    } else if (elType === "shop_logo" || elName.includes("logo")) {
-      startT = 0.2;
-    }
+    // startT remains 0.2s for simultaneous entry
 
     const animType = el.animation_type ?? el.animationType ?? "fade";
 
@@ -644,7 +708,9 @@ async function processVideoJob(job) {
 
     // Scale by base element opacity percentage
     const baseOpacity = elementOpacity / 100;
-    const alphaExpr = `(${baseOpacity}*if(lt(t,${startT}),0,if(lt(t,${startT + fadeDur}),(t-${startT})/${fadeDur},1)))`;
+    const alphaExpr = animType === "none" || animType === "instant"
+      ? `(${baseOpacity}*if(lt(t,${startT}),0,1))`
+      : `(${baseOpacity}*if(lt(t,${startT}),0,if(lt(t,${startT + fadeDur}),(t-${startT})/${fadeDur},1)))`;
     filter += `:alpha='${alphaExpr}'`;
 
     // Add premium font if available, fallback to regional font for Indian script characters
@@ -740,6 +806,13 @@ async function processVideoJob(job) {
   ];
 
   let nextStreamIdx = 2;
+  let qrStreamIdx = -1;
+  if (hasQrCode) {
+    step1InputsRaw.push(`-loop 1 -i "${qrPath}"`);
+    qrStreamIdx = nextStreamIdx;
+    nextStreamIdx++;
+  }
+
   let sparkStreamIdx = -1;
   if (hasSparkle) {
     step1InputsRaw.push(`-loop 1 -i "${sparkLocalPath}"`);
@@ -815,6 +888,26 @@ async function processVideoJob(job) {
 
   let currentLayer = "logo_layer";
 
+  if (hasQrCode && qrEl) {
+    const nextLayer = "qr_layer";
+    const qrStartT = 0.2;
+    const qrFadeDur = 0.5;
+
+    let qrFilter = applyImageAnimation(
+      qrEl,
+      qrW, qrH, qrX, qrY,
+      qrStartT, qrFadeDur,
+      qrStreamIdx,
+      sparkStreamLabel,
+      bangleStreamLabel,
+      glowStreamLabel,
+      currentLayer,
+      nextLayer
+    );
+    filterComplex += qrFilter;
+    currentLayer = nextLayer;
+  }
+
   // Overlay each shape/badge icon image in order
   activeIconElements.forEach((el, index) => {
     const nextLayer = `lay${index}`;
@@ -832,24 +925,7 @@ async function processVideoJob(job) {
     const name = (el.name || "").toLowerCase();
     const animGroup = el.animation_group ?? el.animationGroup ?? "none";
 
-    if (animGroup === "group_1") {
-      startT = 0.4;
-    } else if (animGroup === "group_2") {
-      startT = 1.0;
-    } else if (animGroup === "group_3") {
-      startT = 1.6;
-    } else if (animGroup === "logo") {
-      startT = 0.2;
-    } else if (animGroup === "banners") {
-      startT = 2.2;
-    } else {
-      if (name.includes("circle") || name.includes("pill") || name.includes("rect") || name.includes("bracket")) {
-        if (yPct < 12) startT = 0.4;
-        else if (yPct >= 12 && yPct < 25) startT = 0.9;
-        else if (yPct >= 25 && yPct < 45) startT = 1.4;
-        else startT = 1.9;
-      }
-    }
+    // startT remains 0.2s for simultaneous entry
     const fadeDur = 0.5;
 
     filterComplex += applyImageAnimation(
@@ -1163,6 +1239,7 @@ async function startWorker() {
 
   while (true) {
     try {
+      await checkForUpdates();
       const res = await fetch(`${SERVER_URL}/api/renders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

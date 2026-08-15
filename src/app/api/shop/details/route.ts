@@ -90,7 +90,8 @@ export async function GET(request: Request) {
         states(name),
         districts(name),
         languages(language_name, locale),
-        subscriptions(*)
+        subscriptions(*),
+        associations(allowed_metals)
       `)
       .eq("id", shopId)
       .single();
@@ -158,6 +159,28 @@ export async function GET(request: Request) {
       let renderJob: any = currentScheduleJob;
 
       if (!renderJob && shop.pricing_mode !== "custom_manual") {
+        // Automatically cancel any obsolete pending/processing jobs for the same shop and scheduled date
+        const targetScheduledAt = `${schedule.scheduled_date}T00:00:00.000Z`;
+        const { data: obsoleteJobs } = await supabaseAdmin
+          .from("render_jobs")
+          .select("id")
+          .eq("shop_id", shopId)
+          .eq("scheduled_at", targetScheduledAt)
+          .in("status", ["Pending", "Processing", "Retrying"]);
+
+        if (obsoleteJobs && obsoleteJobs.length > 0) {
+          const obsoleteIds = obsoleteJobs.map(j => j.id);
+          await supabaseAdmin
+            .from("render_jobs")
+            .update({ status: "Cancelled", error_message: "Superceded by a new schedule configuration." })
+            .in("id", obsoleteIds);
+
+          await supabaseAdmin
+            .from("render_queue")
+            .update({ status: "Cancelled" })
+            .in("render_job_id", obsoleteIds);
+        }
+
         // Automatically create a High priority render job for auto-priced shops
         const { data: newJob, error: jobErr } = await supabaseAdmin
           .from("render_jobs")
@@ -253,12 +276,26 @@ export async function GET(request: Request) {
       todayVideo = {
         id: schedule.id,
         scheduleId: schedule.id,
+        jobId: displayJob?.id || null,
         videoTitle: (displayJob?.videos as any)?.title || (schedule.videos as any)?.title || "Daily Jewellery Reel",
         renderStatus: displayJob?.status === "Completed" ? "completed" : (displayJob?.status === "Processing" ? "processing" : "pending"),
         videoUrl: displayJob?.rendered_video_url || null,
         downloadStatus: (schedule as any)?.download_status || "pending"
       };
     }
+
+    // 6. Fetch today's manual render count to enforce limit of 2 renders/day
+    const todayStart = new Date();
+    todayStart.setHours(0,0,0,0);
+    const todayStartISO = todayStart.toISOString();
+
+    const { count: renderCount } = await supabaseAdmin
+      .from("render_jobs")
+      .select("id", { count: "exact", head: true })
+      .eq("shop_id", shopId)
+      .gte("created_at", todayStartISO);
+
+    const todayManualRenderCount = renderCount || 0;
 
     return NextResponse.json({
       shopId: shop.id,
@@ -269,6 +306,7 @@ export async function GET(request: Request) {
       ownerPhone: shop.owner_phone || "",
       address: shop.address || "",
       logoUrl: shop.logo_url || "",
+      qrCodeUrl: shop.qr_code_url || "",
       email: user.email || profile?.email || "",
       city: shop.city || "",
       district: shop.district || shop.districts?.name || "District",
@@ -277,12 +315,14 @@ export async function GET(request: Request) {
       associationId: shop.association_id || null,
       language: shop.language || shop.languages?.language_name || "English",
       selectedRates: shop.selected_rates || ["rate_22k_1g", "rate_22k_8g", "rate_silver_1g"],
+      allowedMetals: shop.allowed_metals || shop.associations?.allowed_metals || ["24k", "22k", "18k", "9k", "silver"],
       pricingMode: shop.pricing_mode || "default",
       discountType: shop.discount_type || "percentage",
       discountValue: shop.discount_value || 0,
       metalDiscounts: shop.metal_discounts || {},
       customRates: shop.custom_rates || {},
       useRegionalRateLabels: !!shop.use_regional_rate_labels,
+      todayManualRenderCount,
       subscription: {
         status: subStatus,
         isExpired,

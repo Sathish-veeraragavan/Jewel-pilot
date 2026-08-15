@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "50mb",
     },
   },
+  serverExternalPackages: ["@ffmpeg-installer/ffmpeg"],
 };
 
 export default nextConfig;

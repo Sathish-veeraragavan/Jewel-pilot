@@ -123,6 +123,16 @@ export default function ShopOnboardingPage() {
     setTempShopCode("onboard_" + Math.random().toString(36).substring(2, 8).toUpperCase());
   }, []);
 
+  useEffect(() => {
+    const selectedAssoc = associations.find(a => a.id === selectedAssociationId);
+    const allowedMetals = selectedAssoc?.allowed_metals || ["24k", "22k", "18k", "9k", "silver"];
+    
+    setSelectedRates(prev => prev.filter(rateKey => {
+      const metal = rateKey.replace("rate_", "").replace("_1g", "").replace("_8g", "");
+      return allowedMetals.includes(metal);
+    }));
+  }, [selectedAssociationId, associations]);
+
   const handleLogoFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawFile = e.target.files?.[0];
     if (!rawFile) return;
@@ -469,49 +479,58 @@ export default function ShopOnboardingPage() {
             </p>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[
-                { id: "rate_22k_1g", label: "22K Gold (1G)" },
-                { id: "rate_22k_8g", label: "22K Gold (8G / 1 Sov)" },
-                { id: "rate_24k_1g", label: "24K Gold (1G)" },
-                { id: "rate_18k_1g", label: "18K Gold (1G)" },
-                { id: "rate_18k_8g", label: "18K Gold (8G / 1 Sov)" },
-                { id: "rate_9k_1g", label: "9K Gold (1G)" },
-                { id: "rate_silver_1g", label: "Silver (1G)" },
-              ].map((opt) => {
-                const selectedIdx = selectedRates.indexOf(opt.id);
-                const isSelected = selectedIdx !== -1;
-                return (
-                  <button
-                    type="button"
-                    key={opt.id}
-                    onClick={() => {
-                      if (isSelected) {
-                        setSelectedRates(selectedRates.filter((r) => r !== opt.id));
-                      } else {
-                        if (selectedRates.length >= 4) {
-                          alert("You can select a maximum of 4 rate displays.");
-                          return;
-                        }
-                        setSelectedRates([...selectedRates, opt.id]);
-                      }
-                    }}
-                    className={`p-3 rounded-xl border text-left flex flex-col justify-between h-20 transition-all ${
-                      isSelected
-                        ? "border-accent bg-amber-50/20 ring-1 ring-accent"
-                        : "border-slate-200 hover:border-slate-300 bg-white"
-                    }`}
-                  >
-                    <span className="text-[11px] font-bold text-slate-700">{opt.label}</span>
-                    {isSelected ? (
-                      <span className="text-[10px] bg-accent text-primary px-2 py-0.5 rounded-md font-extrabold self-end">
-                        Slot {selectedIdx + 1}
-                      </span>
-                    ) : (
-                      <span className="text-[9px] text-slate-400 self-end font-normal">Click to add</span>
-                    )}
-                  </button>
-                );
-              })}
+              {(() => {
+                const selectedAssoc = associations.find(a => a.id === selectedAssociationId);
+                const allowedMetals = selectedAssoc?.allowed_metals || ["24k", "22k", "18k", "9k", "silver"];
+
+                const allOptions = [
+                  { id: "rate_22k_1g", label: "22K Gold (1G)", metal: "22k" },
+                  { id: "rate_22k_8g", label: "22K Gold (8G / 1 Sov)", metal: "22k" },
+                  { id: "rate_24k_1g", label: "24K Gold (1G)", metal: "24k" },
+                  { id: "rate_18k_1g", label: "18K Gold (1G)", metal: "18k" },
+                  { id: "rate_18k_8g", label: "18K Gold (8G / 1 Sov)", metal: "18k" },
+                  { id: "rate_9k_1g", label: "9K Gold (1G)", metal: "9k" },
+                  { id: "rate_silver_1g", label: "Silver (1G)", metal: "silver" },
+                ];
+
+                return allOptions
+                  .filter(opt => allowedMetals.includes(opt.metal))
+                  .map((opt) => {
+                    const selectedIdx = selectedRates.indexOf(opt.id);
+                    const isSelected = selectedIdx !== -1;
+                    return (
+                      <button
+                        type="button"
+                        key={opt.id}
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedRates(selectedRates.filter((r) => r !== opt.id));
+                          } else {
+                            if (selectedRates.length >= 4) {
+                              alert("You can select a maximum of 4 rate displays.");
+                              return;
+                            }
+                            setSelectedRates([...selectedRates, opt.id]);
+                          }
+                        }}
+                        className={`p-3 rounded-xl border text-left flex flex-col justify-between h-20 transition-all ${
+                          isSelected
+                            ? "border-accent bg-amber-50/20 ring-1 ring-accent"
+                            : "border-slate-200 hover:border-slate-300 bg-white"
+                        }`}
+                      >
+                        <span className="text-[11px] font-bold text-slate-700">{opt.label}</span>
+                        {isSelected ? (
+                          <span className="text-[10px] bg-accent text-primary px-2 py-0.5 rounded-md font-extrabold self-end">
+                            Slot {selectedIdx + 1}
+                          </span>
+                        ) : (
+                          <span className="text-[9px] text-slate-400 self-end font-normal">Click to add</span>
+                        )}
+                      </button>
+                    );
+                  });
+              })()}
             </div>
 
             <div className="flex items-center space-x-2 text-[11px] font-semibold text-slate-500 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
