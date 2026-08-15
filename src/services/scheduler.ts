@@ -159,14 +159,18 @@ export async function generateAutoSchedules(
   const districtWeekVideoMap = new Map<string, Set<string>>();
   const existingSchedulesSet = new Set<string>();
   
-  // Track previous day's video category for each shop to prevent consecutive categories
-  const shopLastCategoryMap = new Map<string, string>();
+  // Track recent video categories (last 2 days) for each shop to prevent repeats within 3 days
+  const shopRecentCategoriesMap = new Map<string, string[]>();
 
-  // Determine yesterday's date relative to options.startDate
+  // Determine yesterday and 2-days-ago dates relative to options.startDate
   const startDateObj = new Date(options.startDate);
   const yesterdayObj = new Date(startDateObj);
   yesterdayObj.setDate(yesterdayObj.getDate() - 1);
   const yesterdayStr = formatLocalDate(yesterdayObj);
+
+  const twoDaysAgoObj = new Date(startDateObj);
+  twoDaysAgoObj.setDate(twoDaysAgoObj.getDate() - 2);
+  const twoDaysAgoStr = formatLocalDate(twoDaysAgoObj);
 
   (existingSchedules || []).forEach((s: any) => {
     existingSchedulesSet.add(`${s.shop_id}_${s.scheduled_date}`);
@@ -175,11 +179,16 @@ export async function generateAutoSchedules(
     }
     shopVideoHistory.get(s.shop_id)!.add(s.video_id);
 
-    // If this schedule record was for yesterday, initialize the shop's last category with it
-    if (s.scheduled_date === yesterdayStr) {
-      const category = s.videos?.category;
-      if (category) {
-        shopLastCategoryMap.set(s.shop_id, category);
+    const category = s.videos?.category;
+    if (category) {
+      if (!shopRecentCategoriesMap.has(s.shop_id)) {
+        shopRecentCategoriesMap.set(s.shop_id, []);
+      }
+      const recents = shopRecentCategoriesMap.get(s.shop_id)!;
+      if (s.scheduled_date === yesterdayStr) {
+        recents[0] = category;
+      } else if (s.scheduled_date === twoDaysAgoStr) {
+        recents[1] = category;
       }
     }
   });
@@ -251,7 +260,7 @@ export async function generateAutoSchedules(
 
       const shopHistory = shopVideoHistory.get(shop.id) || new Set();
       const districtId = shop.district_id || "DIST";
-      const lastCategory = shopLastCategoryMap.get(shop.id);
+      const recentCategories = shopRecentCategoriesMap.get(shop.id) || [];
       
       // Resolve custom category requested for this day of the week
       let customCategoryRequested = false;
@@ -291,8 +300,8 @@ export async function generateAutoSchedules(
         // Custom Category Filter
         if (customCategoryRequested && v.category !== shopCustomCategory) return false;
 
-        // Strict consecutive category avoidance: avoid scheduling same category as yesterday/previous day
-        if (lastCategory && v.category === lastCategory) return false;
+        // Strict category avoidance: do not pick a category scheduled in the last 2 days (avoid same category within 3 days)
+        if (recentCategories.includes(v.category)) return false;
         
         return true;
       });
@@ -309,8 +318,8 @@ export async function generateAutoSchedules(
           const aDist = (aIndex + shopOffset) % activeVideos.length;
           const bDist = (bIndex + shopOffset) % activeVideos.length;
 
-          const aPenalty = (lastCategory && lastCategory === a.category) ? 10000 : 0;
-          const bPenalty = (lastCategory && lastCategory === b.category) ? 10000 : 0;
+          const aPenalty = recentCategories.includes(a.category) ? 10000 : 0;
+          const bPenalty = recentCategories.includes(b.category) ? 10000 : 0;
           
           const aTargetBonus = (a.category === targetCategory) ? -5000 : 0;
           const bTargetBonus = (b.category === targetCategory) ? -5000 : 0;
@@ -341,8 +350,8 @@ export async function generateAutoSchedules(
 
         if (districtOnlyFiltered.length > 0) {
           districtOnlyFiltered.sort((a, b) => {
-            const aPenalty = (lastCategory && lastCategory === a.category) ? 10000 : 0;
-            const bPenalty = (lastCategory && lastCategory === b.category) ? 10000 : 0;
+            const aPenalty = recentCategories.includes(a.category) ? 10000 : 0;
+            const bPenalty = recentCategories.includes(b.category) ? 10000 : 0;
             
             const aTargetBonus = (a.category === targetCategory) ? -5000 : 0;
             const bTargetBonus = (b.category === targetCategory) ? -5000 : 0;
@@ -372,8 +381,8 @@ export async function generateAutoSchedules(
 
           if (allSorted.length > 0) {
             allSorted.sort((a, b) => {
-              const aPenalty = (lastCategory && lastCategory === a.category) ? 10000 : 0;
-              const bPenalty = (lastCategory && lastCategory === b.category) ? 10000 : 0;
+              const aPenalty = recentCategories.includes(a.category) ? 10000 : 0;
+              const bPenalty = recentCategories.includes(b.category) ? 10000 : 0;
               
               const aTargetBonus = (a.category === targetCategory) ? -5000 : 0;
               const bTargetBonus = (b.category === targetCategory) ? -5000 : 0;
@@ -396,7 +405,10 @@ export async function generateAutoSchedules(
       shopHistory.add(chosenVideo.id);
       shopVideoHistory.set(shop.id, shopHistory);
       districtUsedVideos.add(chosenVideo.id);
-      shopLastCategoryMap.set(shop.id, chosenVideo.category);
+
+      // Update recent categories list (keep last 2 categories to enforce 3-day restriction)
+      const updatedRecents = [chosenVideo.category, ...recentCategories].slice(0, 2);
+      shopRecentCategoriesMap.set(shop.id, updatedRecents);
 
       // Randomly assign background music track for this schedule slot
       let assignedAudioId = null;

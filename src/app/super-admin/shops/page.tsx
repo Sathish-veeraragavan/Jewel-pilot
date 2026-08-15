@@ -48,6 +48,7 @@ export default function SuperAdminShopsPage() {
   const [selectedAssociationId, setSelectedAssociationId] = useState("");
   const [useCustomAllowedMetals, setUseCustomAllowedMetals] = useState(false);
   const [shopAllowedMetals, setShopAllowedMetals] = useState<string[]>([]);
+  const [selectedRates, setSelectedRates] = useState<string[]>([]);
   const [weeklyCategories, setWeeklyCategories] = useState<{ [key: string]: string }>({
     monday: "none",
     tuesday: "none",
@@ -116,6 +117,8 @@ export default function SuperAdminShopsPage() {
       setUseCustomAllowedMetals(false);
       setShopAllowedMetals(["24k", "22k", "18k", "9k", "silver"]);
     }
+
+    setSelectedRates(shop.selected_rates || ["rate_22k_1g", "rate_22k_8g", "rate_silver_1g"]);
 
     setWeeklyCategories(shop.weekly_categories || {
       monday: "none",
@@ -342,7 +345,8 @@ export default function SuperAdminShopsPage() {
           address: shopAddressInput,
           association_id: selectedAssociationId || null,
           allowed_metals: useCustomAllowedMetals ? shopAllowedMetals : null,
-          weekly_categories: weeklyCategories
+          weekly_categories: weeklyCategories,
+          selected_rates: selectedRates
         }),
       });
       const data = await res.json();
@@ -725,6 +729,73 @@ export default function SuperAdminShopsPage() {
                           </select>
                         </div>
                       ))}
+                    </div>
+                  </div>
+
+                  {/* Custom Selected Rates / Slots Display */}
+                  <div className="border-t border-slate-200/60 pt-3 mt-3 space-y-2">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                      Selected Video Overlay Rates (Max 4)
+                    </span>
+                    <p className="text-[10px] text-slate-500 leading-normal">
+                      Click to select/deselect rates (ordered in sequence of selection).
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 mt-1">
+                      {[
+                        { id: "rate_22k_1g", label: "22K Gold (1G)" },
+                        { id: "rate_22k_8g", label: "22K Gold (8G / 1 Sov)" },
+                        { id: "rate_24k_1g", label: "24K Gold (1G)" },
+                        { id: "rate_18k_1g", label: "18K Gold (1G)" },
+                        { id: "rate_18k_8g", label: "18K Gold (8G / 1 Sov)" },
+                        { id: "rate_9k_1g", label: "9K Gold (1G)" },
+                        { id: "rate_silver_1g", label: "Silver (1G)" }
+                      ]
+                      .filter(opt => {
+                        const metalMap: Record<string, string> = {
+                          rate_22k_1g: "22k",
+                          rate_22k_8g: "22k",
+                          rate_24k_1g: "24k",
+                          rate_18k_1g: "18k",
+                          rate_18k_8g: "18k",
+                          rate_9k_1g: "9k",
+                          rate_silver_1g: "silver"
+                        };
+                        const metal = metalMap[opt.id];
+                        return !useCustomAllowedMetals || shopAllowedMetals.includes(metal);
+                      })
+                      .map((opt) => {
+                        const selectedIdx = selectedRates.indexOf(opt.id);
+                        const isSelected = selectedIdx !== -1;
+                        return (
+                          <button
+                            type="button"
+                            key={opt.id}
+                            onClick={() => {
+                              if (isSelected) {
+                                setSelectedRates(selectedRates.filter((r) => r !== opt.id));
+                              } else {
+                                if (selectedRates.length >= 4) {
+                                  alert("You can select a maximum of 4 rate displays.");
+                                  return;
+                                }
+                                setSelectedRates([...selectedRates, opt.id]);
+                              }
+                            }}
+                            className={`flex items-center justify-between p-2 rounded-xl text-left text-xs font-bold transition-all border ${
+                              isSelected
+                                ? "bg-amber-50/70 border-accent text-primary"
+                                : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                            }`}
+                          >
+                            <span>{opt.label}</span>
+                            {isSelected && (
+                              <span className="bg-accent text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                                {selectedIdx + 1}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>

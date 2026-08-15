@@ -30,7 +30,7 @@ export async function PUT(request: Request) {
 
   try {
     const body = await request.json();
-    let { shopId, subscriptionId, startDate, endDate, subStatus, shopStatus, name, phone, address, owner_phone, association_id, allowed_metals, weekly_categories } = body;
+    let { shopId, subscriptionId, startDate, endDate, subStatus, shopStatus, name, phone, address, owner_phone, association_id, allowed_metals, weekly_categories, selected_rates } = body;
 
     if (!shopId) {
       return NextResponse.json({ error: "Missing shopId" }, { status: 400 });
@@ -77,6 +77,7 @@ export async function PUT(request: Request) {
     if (association_id !== undefined) shopUpdatePayload.association_id = association_id;
     if (allowed_metals !== undefined) shopUpdatePayload.allowed_metals = allowed_metals;
     if (weekly_categories !== undefined) shopUpdatePayload.weekly_categories = weekly_categories;
+    if (selected_rates !== undefined) shopUpdatePayload.selected_rates = selected_rates;
 
     const { error: shopErr } = await supabaseAdmin
       .from("shops")
