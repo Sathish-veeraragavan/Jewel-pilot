@@ -58,6 +58,11 @@ export async function GET(request: Request) {
       const startDate = formatYMD(startObj);
       const endDate = formatYMD(endObj);
 
+      // Fetch history starting 60 days prior to check for already sent/used videos in dropdown
+      const historyStartObj = new Date(startObj);
+      historyStartObj.setDate(historyStartObj.getDate() - 60);
+      const historyStartDate = formatYMD(historyStartObj);
+
       const [{ data: shops }, { data: schedules, error: schedErr }, { data: videos }, { data: templates }, { data: musicTracks }, { data: outroSettings }] = await Promise.all([
         supabaseAdmin.from("shops").select("id, name, shop_code, district_id, status, association_id").neq("status", "inactive"),
         supabaseAdmin.from("schedules").select(`
@@ -67,7 +72,7 @@ export async function GET(request: Request) {
           occasions(id, name),
           music_tracks:audio_track_id(id, title)
         `)
-        .gte("scheduled_date", startDate)
+        .gte("scheduled_date", historyStartDate)
         .lte("scheduled_date", endDate)
         .order("scheduled_date", { ascending: true }),
         supabaseAdmin.from("videos").select("id, title, category").eq("is_active", true),

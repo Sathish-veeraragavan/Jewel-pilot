@@ -413,7 +413,9 @@ export default function SchedulerConfigPage() {
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Active Assignments Count</p>
-            <p className="text-2xl font-bold text-accent">{matrixData.schedules?.length || 0} Video Slots</p>
+            <p className="text-2xl font-bold text-accent">
+              {(matrixData.schedules || []).filter((s: any) => s.scheduled_date && s.scheduled_date.substring(0, 10) >= matrixData.startDate).length} Video Slots
+            </p>
           </div>
         </div>
 
