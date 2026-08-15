@@ -180,8 +180,11 @@ app.listen(VPS_PORT, () => {
   console.log(`[HTTP] Static file server running at http://${VPS_PUBLIC_IP}:${VPS_PORT}/downloads`);
 });
 
-// ── Download Helper ────────────────────────────────────────────
 async function downloadFile(url, destPath) {
+  if (!url || (!url.startsWith("http://") && !url.startsWith("https://"))) {
+    console.log(`[Download] Skipping download for invalid/empty URL: "${url}"`);
+    return;
+  }
   const fetch = (await import("node-fetch")).default;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to download ${url}: ${res.statusText}`);
