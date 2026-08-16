@@ -1048,6 +1048,9 @@ async function processVideoJob(job) {
     }
   });
 
+  // Clean up any leading/trailing semicolons or empty filters
+  filterComplex = filterComplex.trim().replace(/^;+/, "").replace(/;+$/, "").trim();
+
   // Write filter complex to a file to prevent shell escaping and command length issues
   const filterScriptPath = path.join(jobDir, "filter.txt");
   fs.writeFileSync(filterScriptPath, filterComplex);
