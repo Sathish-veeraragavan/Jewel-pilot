@@ -94,6 +94,54 @@ export async function GET(request: Request) {
         outro_video_url: outroMap[s.id] || null
       }));
 
+      // Self-healing check: check if any schedules are referencing deleted or inactive templates/videos
+      const invalidSchedules = (schedules || []).filter(s => 
+        (s.template_id && !s.templates) || (s.video_id && !s.videos)
+      );
+
+      if (invalidSchedules.length > 0) {
+        console.log(`[Self-Healing] Found ${invalidSchedules.length} schedules with missing/inactive assets. Rescheduling...`);
+        for (const s of invalidSchedules) {
+          const shop = (shops || []).find((sh: any) => sh.id === s.shop_id);
+          if (!shop) continue;
+
+          // 1. Resolve new template if missing or inactive
+          let newTemplateId = s.template_id;
+          if (s.template_id && !s.templates) {
+            // Find allowed templates for shop
+            const allowedTemplates = (templates || []).filter((t: any) => 
+              !t.allowed_shop_ids || t.allowed_shop_ids.length === 0 || t.allowed_shop_ids.includes(shop.id)
+            );
+            if (allowedTemplates.length > 0) {
+              newTemplateId = allowedTemplates[0].id;
+            }
+          }
+
+          // 2. Resolve new video if missing or inactive
+          let newVideoId = s.video_id;
+          if (s.video_id && !s.videos) {
+            if (videos && videos.length > 0) {
+              newVideoId = videos[0].id;
+            }
+          }
+
+          // 3. Update the schedule record in the database
+          await supabaseAdmin
+            .from("schedules")
+            .update({
+              template_id: newTemplateId,
+              video_id: newVideoId
+            })
+            .eq("id", s.id);
+            
+          // Update the local schedule object so it renders correctly immediately in the response
+          s.template_id = newTemplateId;
+          s.video_id = newVideoId;
+          s.templates = ((templates || []).find((t: any) => t.id === newTemplateId) || null) as any;
+          s.videos = ((videos || []).find((v: any) => v.id === newVideoId) || null) as any;
+        }
+      }
+
       return NextResponse.json({
         startDate,
         endDate,
