@@ -180,6 +180,76 @@ export async function POST(request: Request) {
         .single();
 
       if (jobCheck) {
+        // Load the shop profile details to check pricing mode and association
+        const { data: shop } = await supabaseAdmin
+          .from("shops")
+          .select("pricing_mode, association_id")
+          .eq("id", jobCheck.shop_id)
+          .maybeSingle();
+
+        const isManual = shop?.pricing_mode === "custom_manual";
+        if (!isManual && shop?.association_id) {
+          // Resolve target date to check
+          let targetDateStr = null;
+          if (jobCheck.scheduled_at) {
+            targetDateStr = jobCheck.scheduled_at.split("T")[0];
+          } else {
+            const { data: schedule } = await supabaseAdmin
+              .from("schedules")
+              .select("scheduled_date")
+              .eq("shop_id", jobCheck.shop_id)
+              .eq("video_id", jobCheck.video_library_id)
+              .eq("template_id", jobCheck.template_id)
+              .order("scheduled_date", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            targetDateStr = schedule?.scheduled_date || new Date().toISOString().split("T")[0];
+          }
+
+          // Query if any rates exist for this association on targetDateStr
+          const { data: rateExists } = await supabaseAdmin
+            .from("gold_rates")
+            .select("id")
+            .eq("association_id", shop.association_id)
+            .eq("rate_date", targetDateStr)
+            .limit(1)
+            .maybeSingle();
+
+          if (!rateExists) {
+            console.log(`[Rate Blocker] Blocking render job ${jobId} because association ${shop.association_id} has no rates for ${targetDateStr}`);
+            
+            // Mark render job as Failed
+            await supabaseAdmin
+              .from("render_jobs")
+              .update({
+                status: "Failed",
+                error_message: `Render blocked: Commodity rates for your association have not been added for date ${targetDateStr}.`
+              })
+              .eq("id", jobId);
+
+            // Mark queue item as Failed
+            await supabaseAdmin
+              .from("render_queue")
+              .update({ status: "Failed" })
+              .eq("render_job_id", jobId);
+
+            // Log block info
+            await supabaseAdmin
+              .from("render_job_logs")
+              .insert([{
+                render_job_id: jobId,
+                log_level: "Error",
+                message: `Render blocked: Commodity rates for your association have not been added for date ${targetDateStr}.`
+              }]);
+
+            return NextResponse.json({ 
+              message: "No pending jobs in queue",
+              vps_cleanup_time: cleanupTime,
+              render_retention_hours: retentionHours
+            });
+          }
+        }
+
         let rate = null;
         let scheduledDate = null;
 
