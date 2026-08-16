@@ -147,6 +147,7 @@ export async function generateAutoSchedules(
       id, 
       shop_id, 
       video_id, 
+      template_id,
       scheduled_date,
       videos:video_id (
         category
@@ -157,7 +158,7 @@ export async function generateAutoSchedules(
 
   const shopVideoHistory = new Map<string, Set<string>>();
   const districtWeekVideoMap = new Map<string, Set<string>>();
-  const existingSchedulesSet = new Set<string>();
+  const existingSchedulesMap = new Map<string, any>();
   
   // Track recent video categories (last 2 days) for each shop to prevent repeats within 3 days
   const shopRecentCategoriesMap = new Map<string, string[]>();
@@ -173,7 +174,7 @@ export async function generateAutoSchedules(
   const twoDaysAgoStr = formatLocalDate(twoDaysAgoObj);
 
   (existingSchedules || []).forEach((s: any) => {
-    existingSchedulesSet.add(`${s.shop_id}_${s.scheduled_date}`);
+    existingSchedulesMap.set(`${s.shop_id}_${s.scheduled_date}`, s);
     if (!shopVideoHistory.has(s.shop_id)) {
       shopVideoHistory.set(s.shop_id, new Set());
     }
@@ -229,9 +230,14 @@ export async function generateAutoSchedules(
 
     for (const shop of activeShops) {
       const scheduleKey = `${shop.id}_${currentDateStr}`;
-      if (existingSchedulesSet.has(scheduleKey)) {
-        // Skip since this date is already scheduled for this shop
-        continue;
+      const existingSchedule = existingSchedulesMap.get(scheduleKey);
+      if (existingSchedule) {
+        // If the schedule exists and its assigned template is still active, we skip regenerating it.
+        // If the template was deleted, we allow the loop to run to assign a new active template.
+        const templateStillActive = availableTemplates.some(t => t.id === existingSchedule.template_id);
+        if (templateStillActive) {
+          continue;
+        }
       }
 
       const shopIdx = activeShops.indexOf(shop);
