@@ -804,11 +804,19 @@ async function processVideoJob(job) {
 
   // Build inputs list and track stream indexes dynamically
   const step1InputsRaw = [
-    `-i "${baseVideoPath}"`,
-    `-loop 1 -i "${logoPath}"`
+    `-i "${baseVideoPath}"`
   ];
 
-  let nextStreamIdx = 2;
+  let nextStreamIdx = 1;
+
+  const hasLogo = !!(job.logo_url && (job.logo_url.startsWith("http://") || job.logo_url.startsWith("https://") || job.logo_url.startsWith("/")));
+  let logoStreamIdx = -1;
+  if (hasLogo) {
+    step1InputsRaw.push(`-loop 1 -i "${logoPath}"`);
+    logoStreamIdx = nextStreamIdx;
+    nextStreamIdx++;
+  }
+
   let qrStreamIdx = -1;
   if (hasQrCode) {
     step1InputsRaw.push(`-loop 1 -i "${qrPath}"`);
@@ -867,29 +875,32 @@ async function processVideoJob(job) {
     filterComplex = colorkeys.join("; ");
   }
 
-  // Scale and overlay logo with animation
-  const logoStartT = 0.2;
-  const logoFadeDur = 0.5;
+  let currentLayer = "0:v";
 
-  let logoFilter = applyImageAnimation(
-    logoEl || { type: "shop_logo" },
-    logoW, logoH, logoX, logoY,
-    logoStartT, logoFadeDur,
-    1,
-    sparkStreamLabel,
-    bangleStreamLabel,
-    glowStreamLabel,
-    "0:v",
-    "logo_layer"
-  );
+  if (hasLogo) {
+    const logoStartT = 0.2;
+    const logoFadeDur = 0.5;
 
-  if (filterComplex === "") {
-    filterComplex += logoFilter.substring(2);
-  } else {
-    filterComplex += logoFilter;
+    let logoFilter = applyImageAnimation(
+      logoEl || { type: "shop_logo" },
+      logoW, logoH, logoX, logoY,
+      logoStartT, logoFadeDur,
+      logoStreamIdx,
+      sparkStreamLabel,
+      bangleStreamLabel,
+      glowStreamLabel,
+      "0:v",
+      "logo_layer"
+    );
+
+    if (filterComplex === "") {
+      filterComplex += logoFilter.substring(2);
+    } else {
+      filterComplex += logoFilter;
+    }
+
+    currentLayer = "logo_layer";
   }
-
-  let currentLayer = "logo_layer";
 
   if (hasQrCode && qrEl) {
     const nextLayer = "qr_layer";
@@ -1062,8 +1073,9 @@ async function processVideoJob(job) {
   // ══════════════════════════════════════════════════════════
   console.log(`[Job ${job.id}] Step 2: Concatenating with outro + adding background music...`);
 
-  const mainDuration = getMediaDuration(layeredVideoPath);
-  const outroDuration = getMediaDuration(outroPath);
+  const mainDuration = getMediaDuration(layeredVideoPath) || 15;
+  const hasOutro = !!(job.outro_url && (job.outro_url.startsWith("http://") || job.outro_url.startsWith("https://") || job.outro_url.startsWith("/")));
+  const outroDuration = hasOutro ? (getMediaDuration(outroPath) || 0) : 0;
   const totalDuration = mainDuration + outroDuration;
   const fadeOutStart = Math.max(0, totalDuration - 0.5);
 
@@ -1072,39 +1084,68 @@ async function processVideoJob(job) {
   // Both the main video and the outro may have different resolutions.
   // FFmpeg concat requires identical dimensions, so we scale and pad both streams to match.
   // We apply video fade-out (0.5s) at the end of the concatenated stream.
-  const concatFilter = `[0:v]scale=${VIDEO_W}:${VIDEO_H}:force_original_aspect_ratio=decrease,pad=${VIDEO_W}:${VIDEO_H}:(ow-iw)/2:(oh-ih)/2,setsar=1[scaled_main]; [1:v]scale=${VIDEO_W}:${VIDEO_H}:force_original_aspect_ratio=decrease,pad=${VIDEO_W}:${VIDEO_H}:(ow-iw)/2:(oh-ih)/2,setsar=1[scaled_outro]; [scaled_main][scaled_outro]concat=n=2:v=1:a=0,fade=t=out:st=${fadeOutStart}:d=0.5[outv]`;
+  let filterComplexString = "";
+  if (hasOutro) {
+    filterComplexString = `[0:v]scale=${VIDEO_W}:${VIDEO_H}:force_original_aspect_ratio=decrease,pad=${VIDEO_W}:${VIDEO_H}:(ow-iw)/2:(oh-ih)/2,setsar=1[scaled_main]; [1:v]scale=${VIDEO_W}:${VIDEO_H}:force_original_aspect_ratio=decrease,pad=${VIDEO_W}:${VIDEO_H}:(ow-iw)/2:(oh-ih)/2,setsar=1[scaled_outro]; [scaled_main][scaled_outro]concat=n=2:v=1:a=0,fade=t=out:st=${fadeOutStart}:d=0.5[outv]`;
+  } else {
+    filterComplexString = `[0:v]fade=t=out:st=${fadeOutStart}:d=0.5[outv]`;
+  }
 
   let step2Cmd = "";
   if (audioUrl) {
     // With background music: concat video streams + add music track and fade audio
-    //   [0] = layered_main.mp4  (video only)
-    //   [1] = outro.mp4         (may have audio, we ignore it)
-    //   [2] = bg_music.mp3
-    step2Cmd = [
-      `ffmpeg -y`,
-      `-i "${layeredVideoPath}"`,
-      `-i "${outroPath}"`,
-      `-i "${audioTrackPath}"`,
-      `-filter_complex "${concatFilter}"`,
-      `-map "[outv]"`,
-      `-map 2:a`,               // Use music track as audio
-      `-filter:a "afade=t=out:st=${fadeOutStart}:d=0.5"`,
-      `-c:v libx264 -preset fast -pix_fmt yuv420p`,
-      `-c:a aac -b:a 192k`,
-      `-shortest`,              // End when shorter stream (video) ends
-      `"${finalOutputPath}"`
-    ].join(" ");
+    if (hasOutro) {
+      step2Cmd = [
+        `ffmpeg -y`,
+        `-i "${layeredVideoPath}"`,
+        `-i "${outroPath}"`,
+        `-i "${audioTrackPath}"`,
+        `-filter_complex "${filterComplexString}"`,
+        `-map "[outv]"`,
+        `-map 2:a`,               // Use music track as audio
+        `-filter:a "afade=t=out:st=${fadeOutStart}:d=0.5"`,
+        `-c:v libx264 -preset fast -pix_fmt yuv420p`,
+        `-c:a aac -b:a 192k`,
+        `-shortest`,              // End when shorter stream (video) ends
+        `"${finalOutputPath}"`
+      ].join(" ");
+    } else {
+      step2Cmd = [
+        `ffmpeg -y`,
+        `-i "${layeredVideoPath}"`,
+        `-i "${audioTrackPath}"`,
+        `-filter_complex "${filterComplexString}"`,
+        `-map "[outv]"`,
+        `-map 1:a`,               // Use music track as audio
+        `-filter:a "afade=t=out:st=${fadeOutStart}:d=0.5"`,
+        `-c:v libx264 -preset fast -pix_fmt yuv420p`,
+        `-c:a aac -b:a 192k`,
+        `-shortest`,              // End when shorter stream (video) ends
+        `"${finalOutputPath}"`
+      ].join(" ");
+    }
   } else {
     // No music: just concat video streams, no audio output
-    step2Cmd = [
-      `ffmpeg -y`,
-      `-i "${layeredVideoPath}"`,
-      `-i "${outroPath}"`,
-      `-filter_complex "${concatFilter}"`,
-      `-map "[outv]"`,
-      `-c:v libx264 -preset fast -pix_fmt yuv420p`,
-      `"${finalOutputPath}"`
-    ].join(" ");
+    if (hasOutro) {
+      step2Cmd = [
+        `ffmpeg -y`,
+        `-i "${layeredVideoPath}"`,
+        `-i "${outroPath}"`,
+        `-filter_complex "${filterComplexString}"`,
+        `-map "[outv]"`,
+        `-c:v libx264 -preset fast -pix_fmt yuv420p`,
+        `"${finalOutputPath}"`
+      ].join(" ");
+    } else {
+      step2Cmd = [
+        `ffmpeg -y`,
+        `-i "${layeredVideoPath}"`,
+        `-filter_complex "${filterComplexString}"`,
+        `-map "[outv]"`,
+        `-c:v libx264 -preset fast -pix_fmt yuv420p`,
+        `"${finalOutputPath}"`
+      ].join(" ");
+    }
   }
 
   console.log(`[Job ${job.id}] FFmpeg Step 2:\n${step2Cmd}\n`);
