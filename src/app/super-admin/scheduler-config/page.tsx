@@ -568,7 +568,10 @@ export default function SchedulerConfigPage() {
                     s.id !== selectedSchedule.id
                   );
 
-                  // Find other shops using this video in the same calendar week (Monday to Sunday)
+                  // Find other shops using this video in the same calendar week (Monday to Sunday) that are in the same district
+                  const currentShopObj = (matrixData.shops || []).find((sh: any) => sh.id === selectedSchedule.shopId);
+                  const currentDistrictId = currentShopObj?.district_id;
+
                   const targetDate = new Date(selectedSchedule.dateStr);
                   const targetDay = targetDate.getDay();
                   const diffToMonday = targetDate.getDate() - targetDay + (targetDay === 0 ? -6 : 1);
@@ -579,12 +582,14 @@ export default function SchedulerConfigPage() {
                   const sundayStr = sunday.toISOString().split("T")[0];
 
                   const otherShopsUsing = (matrixData.schedules || [])
-                    .filter((s: any) => 
-                      s.video_id === v.id && 
-                      s.shop_id !== selectedSchedule.shopId &&
-                      s.scheduled_date >= mondayStr &&
-                      s.scheduled_date <= sundayStr
-                    )
+                    .filter((s: any) => {
+                      if (s.video_id !== v.id || s.shop_id === selectedSchedule.shopId) return false;
+                      if (s.scheduled_date < mondayStr || s.scheduled_date > sundayStr) return false;
+
+                      // Check if the other shop belongs to the same district
+                      const otherShopObj = (matrixData.shops || []).find((sh: any) => sh.id === s.shop_id);
+                      return otherShopObj && otherShopObj.district_id === currentDistrictId;
+                    })
                     .map((s: any) => {
                       const shopObj = (matrixData.shops || []).find((sh: any) => sh.id === s.shop_id);
                       return shopObj ? `${shopObj.name}` : "Other Shop";
