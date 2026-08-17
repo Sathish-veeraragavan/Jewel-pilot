@@ -30,9 +30,9 @@ function getMediaDuration(filePath) {
 }
 
 // ── Configuration ──────────────────────────────────────────────
-const SERVER_URL = "https://jewellery-videos.vercel.app";
-const VPS_PUBLIC_IP = "31.97.202.176";
-const VPS_PORT = 8080;
+const SERVER_URL = process.env.SERVER_URL || "https://jewellery-videos.vercel.app";
+const VPS_PUBLIC_IP = process.env.VPS_PUBLIC_IP || "187.127.131.89";
+const VPS_PORT = process.env.VPS_PORT || 8080;
 const WORKER_ID = `hostinger_vps_worker_${require("os").hostname()}`;
 const POLL_INTERVAL_MS = 5000;
 

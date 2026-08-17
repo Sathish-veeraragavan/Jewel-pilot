@@ -4,7 +4,8 @@ import * as path from "path";
 
 async function run() {
   try {
-    const res = await fetch("https://jewellery-videos.vercel.app/api/renders", {
+    const serverUrl = process.env.SERVER_URL || "https://jewellery-videos.vercel.app";
+    const res = await fetch(`${serverUrl}/api/renders`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "dequeue", worker_id: "test_worker_debug" })
