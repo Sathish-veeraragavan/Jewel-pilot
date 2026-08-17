@@ -22,7 +22,7 @@ export async function GET(request: Request) {
       { data: shops, error },
       { data: outroSettings }
     ] = await Promise.all([
-      supabaseAdmin.from("shops").select(`*, subscriptions(*), states(name)`).order("created_at", { ascending: false }),
+      supabaseAdmin.from("shops").select(`*, subscriptions(*), states(name), associations(name)`).order("created_at", { ascending: false }),
       supabaseAdmin.from("system_settings").select("setting_key, value").like("setting_key", "outro_video_%")
     ]);
 

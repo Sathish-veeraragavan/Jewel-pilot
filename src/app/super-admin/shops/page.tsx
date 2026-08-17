@@ -64,6 +64,12 @@ export default function SuperAdminShopsPage() {
   const [uploadingOutro, setUploadingOutro] = useState(false);
   const [outroProgress, setOutroProgress] = useState(0);
 
+  // Filter States
+  const [filterState, setFilterState] = useState("all");
+  const [filterAssociation, setFilterAssociation] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+
   const todayStr = new Date().toISOString().split("T")[0];
 
   const fetchShops = async () => {
@@ -392,6 +398,44 @@ export default function SuperAdminShopsPage() {
     }
   };
 
+  const uniqueStates = Array.from(new Set(
+    (shops || []).map((s: any) => s.states?.name || s.state).filter(Boolean)
+  )).sort() as string[];
+
+  const filteredShops = shops.filter((shop: any) => {
+    // 1. Search Query
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const nameMatch = (shop.name || "").toLowerCase().includes(q);
+      const ownerMatch = (shop.owner_name || "").toLowerCase().includes(q);
+      const codeMatch = (shop.shop_code || "").toLowerCase().includes(q);
+      const cityMatch = (shop.city || "").toLowerCase().includes(q);
+      if (!nameMatch && !ownerMatch && !codeMatch && !cityMatch) return false;
+    }
+
+    // 2. State Filter
+    if (filterState !== "all") {
+      const stateName = shop.states?.name || shop.state;
+      if (stateName !== filterState) return false;
+    }
+
+    // 3. Association Filter
+    if (filterAssociation !== "all") {
+      if (shop.association_id !== filterAssociation) return false;
+    }
+
+    // 4. Status Filter
+    if (filterStatus !== "all") {
+      if (filterStatus === "expired") {
+        if (shop.computedSubStatus !== "expired") return false;
+      } else {
+        if (shop.status !== filterStatus) return false;
+      }
+    }
+
+    return true;
+  });
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -448,6 +492,55 @@ export default function SuperAdminShopsPage() {
         </div>
       </div>
 
+      {/* Search & Filters */}
+      <div className="bg-white p-4 rounded-2xl border border-border shadow-sm grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">Search Outlet</label>
+          <Input 
+            placeholder="Search by name, code, city..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="text-xs"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">State Region</label>
+          <Select 
+            value={filterState}
+            onChange={(e) => setFilterState(e.target.value)}
+            options={[
+              { label: "All States", value: "all" },
+              ...uniqueStates.map(state => ({ label: state, value: state }))
+            ]}
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">Association</label>
+          <Select 
+            value={filterAssociation}
+            onChange={(e) => setFilterAssociation(e.target.value)}
+            options={[
+              { label: "All Associations", value: "all" },
+              ...associations.map(assoc => ({ label: assoc.name, value: assoc.id }))
+            ]}
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">Status</label>
+          <Select 
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            options={[
+              { label: "All Statuses", value: "all" },
+              { label: "Active", value: "active" },
+              { label: "Inactive", value: "inactive" },
+              { label: "Pending", value: "pending" },
+              { label: "Expired", value: "expired" }
+            ]}
+          />
+        </div>
+      </div>
+
       {/* Table */}
       {loading ? (
         <LoadingSpinner />
@@ -465,14 +558,14 @@ export default function SuperAdminShopsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border text-sm text-primary">
-                {shops.length === 0 ? (
+                {filteredShops.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="py-8 text-center text-slate-500 text-xs font-semibold">
-                      No retail store outlets onboarded yet. Click "Register New Store Outlet" to add one.
+                      No matching store outlets found with current filter selections.
                     </td>
                   </tr>
                 ) : (
-                  shops.map((shop: any) => (
+                  filteredShops.map((shop: any) => (
                     <tr key={shop.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="py-4 px-6">
                         <div className="flex items-center space-x-2">
@@ -489,7 +582,7 @@ export default function SuperAdminShopsPage() {
                           )}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {shop.owner_name} • Shop Ph: {shop.phone} {shop.owner_phone ? `• Owner Ph: ${shop.owner_phone}` : ""} • {shop.city || shop.district || shop.state}
+                          {shop.owner_name} • Shop Ph: {shop.phone} {shop.owner_phone ? `• Owner Ph: ${shop.owner_phone}` : ""} • {shop.city || shop.district || shop.state} {shop.states?.name ? `• State: ${shop.states.name}` : ""} {shop.associations?.name ? `• Association: ${shop.associations.name}` : ""}
                         </div>
                       </td>
                       <td className="py-4 px-6">
