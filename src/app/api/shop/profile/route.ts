@@ -133,7 +133,7 @@ export async function PUT(request: Request) {
     if (body.trigger_render) {
       const todayStr = new Date().toISOString().split("T")[0];
       
-      // Enforce daily limit of 2 manual renders
+      // Enforce daily limit of 2 manual renders (or 3 for manual shops after 12 PM local IST time)
       const todayStart = new Date();
       todayStart.setHours(0,0,0,0);
       const todayStartISO = todayStart.toISOString();
@@ -144,9 +144,28 @@ export async function PUT(request: Request) {
         .eq("shop_id", shopId)
         .gte("created_at", todayStartISO);
 
-      if (renderCount && renderCount >= 2) {
+      // Check pricing mode
+      const { data: shopPricing } = await supabaseAdmin
+        .from("shops")
+        .select("pricing_mode")
+        .eq("id", shopId)
+        .maybeSingle();
+
+      const isManualPrice = shopPricing?.pricing_mode === "custom_manual";
+      let allowedLimit = 2;
+      
+      if (isManualPrice) {
+        const options = { timeZone: 'Asia/Kolkata', hour: '2-digit', hour12: false } as const;
+        const formatter = new Intl.DateTimeFormat('en-US', options);
+        const istHour = parseInt(formatter.format(new Date()));
+        if (istHour >= 12) {
+          allowedLimit = 3;
+        }
+      }
+
+      if (renderCount && renderCount >= allowedLimit) {
         return NextResponse.json({ 
-          error: "The daily limit to generate videos (max 2/day) has been reached." 
+          error: `The daily limit to generate videos (max ${allowedLimit}/day) has been reached.` 
         }, { status: 429 });
       }
 

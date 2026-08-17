@@ -297,6 +297,18 @@ export async function GET(request: Request) {
 
     const todayManualRenderCount = renderCount || 0;
 
+    let maxAllowedLimit = 2;
+    const isManualPrice = shop.pricing_mode === "custom_manual";
+    if (isManualPrice) {
+      // Enforce time-based limits in IST: 2 before 12 PM, 3 between 12 PM and 9 PM (stays 3 after 9 PM)
+      const options = { timeZone: 'Asia/Kolkata', hour: '2-digit', hour12: false } as const;
+      const formatter = new Intl.DateTimeFormat('en-US', options);
+      const istHour = parseInt(formatter.format(new Date()));
+      if (istHour >= 12) {
+        maxAllowedLimit = 3;
+      }
+    }
+
     return NextResponse.json({
       shopId: shop.id,
       shopCode: shop.shop_code,
@@ -323,6 +335,7 @@ export async function GET(request: Request) {
       customRates: shop.custom_rates || {},
       useRegionalRateLabels: !!shop.use_regional_rate_labels,
       todayManualRenderCount,
+      maxAllowedLimit,
       subscription: {
         status: subStatus,
         isExpired,

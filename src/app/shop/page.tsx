@@ -193,7 +193,7 @@ export default function ShopPage() {
     );
   }
 
-  const { subscription, selectedRates, pricingMode, todayManualRenderCount = 0 } = shopDetails;
+  const { subscription, selectedRates, pricingMode, todayManualRenderCount = 0, maxAllowedLimit = 2 } = shopDetails;
   const isExpired = subscription?.isExpired || subscription?.status === "expired";
   const isCustomManual = pricingMode === "custom_manual";
 
@@ -240,8 +240,8 @@ export default function ShopPage() {
                   <h3 className="font-bold text-base text-primary flex flex-wrap items-center gap-2">
                     <span>Manual Daily Rates</span>
                     <span className="text-[10px] uppercase font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md">Manual Mode Active</span>
-                    <span className={`text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-md border ${todayManualRenderCount >= 2 ? "bg-red-50 text-red-700 border-red-200 animate-pulse" : "bg-blue-50 text-blue-700 border-blue-200"}`}>
-                      Render Limit: {todayManualRenderCount} / 2 Today
+                    <span className={`text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-md border ${todayManualRenderCount >= maxAllowedLimit ? "bg-red-50 text-red-700 border-red-200 animate-pulse" : "bg-blue-50 text-blue-700 border-blue-200"}`}>
+                      Render Limit: {todayManualRenderCount} / {maxAllowedLimit} Today
                     </span>
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
@@ -249,13 +249,13 @@ export default function ShopPage() {
                   </p>
                 </div>
               </div>
-
+ 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 {(selectedRates || ["rate_22k_1g", "rate_22k_8g", "rate_silver_1g"]).map((slotKey: string) => {
                   const meta = rateLabels[slotKey];
                   if (!meta) return null;
                   const rateKey = meta.key;
-
+ 
                   return (
                     <div key={slotKey} className="space-y-1.5 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
                       <label className="text-xs font-semibold text-slate-700 block">{meta.label}</label>
@@ -266,7 +266,7 @@ export default function ShopPage() {
                           placeholder="Enter price"
                           value={manualRates[rateKey as keyof typeof manualRates] || ""}
                           onChange={(e) => setManualRates({ ...manualRates, [rateKey]: Number(e.target.value) })}
-                          disabled={todayManualRenderCount >= 2}
+                          disabled={todayManualRenderCount >= maxAllowedLimit}
                           className="w-full pl-7 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent font-semibold disabled:bg-slate-100 disabled:text-slate-400"
                         />
                       </div>
@@ -274,23 +274,23 @@ export default function ShopPage() {
                   );
                 })}
               </div>
-
-              {todayManualRenderCount >= 2 && (
+ 
+              {todayManualRenderCount >= maxAllowedLimit && (
                 <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-xs font-semibold">
-                  ⚠️ The daily limit to generate videos (max 2/day) has been reached. Please try again tomorrow.
+                  ⚠️ The daily limit to generate videos (max {maxAllowedLimit}/day) has been reached. Please try again tomorrow.
                 </div>
               )}
-
+ 
               {saveMessage && (
                 <div className={`p-3 rounded-xl text-xs font-semibold ${saveMessage.startsWith("Error") ? "bg-red-50 text-red-700 border border-red-200" : "bg-green-50 text-green-700 border border-green-200"}`}>
                   {saveMessage}
                 </div>
               )}
-
+ 
               <button
                 type="button"
                 onClick={handleSaveAndRender}
-                disabled={savingManual || todayManualRenderCount >= 2}
+                disabled={savingManual || todayManualRenderCount >= maxAllowedLimit}
                 className="w-full sm:w-auto bg-accent hover:bg-yellow-400 text-primary font-bold py-2.5 px-6 rounded-xl shadow-md transition-all text-xs flex items-center justify-center space-x-2 disabled:opacity-50"
               >
                 {savingManual ? (
