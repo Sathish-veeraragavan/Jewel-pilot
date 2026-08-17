@@ -568,10 +568,47 @@ export default function SchedulerConfigPage() {
                     s.id !== selectedSchedule.id
                   );
 
+                  // Find other shops using this video in the same calendar week (Monday to Sunday)
+                  const targetDate = new Date(selectedSchedule.dateStr);
+                  const targetDay = targetDate.getDay();
+                  const diffToMonday = targetDate.getDate() - targetDay + (targetDay === 0 ? -6 : 1);
+                  const monday = new Date(new Date(selectedSchedule.dateStr).setDate(diffToMonday));
+                  const sunday = new Date(new Date(monday).getTime() + 6 * 24 * 60 * 60 * 1000);
+                  
+                  const mondayStr = monday.toISOString().split("T")[0];
+                  const sundayStr = sunday.toISOString().split("T")[0];
+
+                  const otherShopsUsing = (matrixData.schedules || [])
+                    .filter((s: any) => 
+                      s.video_id === v.id && 
+                      s.shop_id !== selectedSchedule.shopId &&
+                      s.scheduled_date >= mondayStr &&
+                      s.scheduled_date <= sundayStr
+                    )
+                    .map((s: any) => {
+                      const shopObj = (matrixData.shops || []).find((sh: any) => sh.id === s.shop_id);
+                      return shopObj ? `${shopObj.name}` : "Other Shop";
+                    });
+
+                  // Deduplicate shop names
+                  const uniqueShops = Array.from(new Set(otherShopsUsing));
+
+                  let label = v.title;
+                  const details: string[] = [];
+
+                  if (pastSent) {
+                    details.push(`Sent on ${pastSent.scheduled_date}`);
+                  }
+                  if (uniqueShops.length > 0) {
+                    details.push(`Used this week by: ${uniqueShops.join(", ")}`);
+                  }
+
+                  if (details.length > 0) {
+                    label += ` ⚠️ (${details.join(" | ")})`;
+                  }
+
                   return {
-                    label: pastSent 
-                      ? `${v.title} ⚠️ (these videos are already sent on ${pastSent.scheduled_date})` 
-                      : v.title,
+                    label,
                     value: v.id
                   };
                 })}
