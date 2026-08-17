@@ -194,14 +194,15 @@ export default function SchedulerConfigPage() {
     }
   };
 
-  const handleOpenEditModal = (sched: any, shop: any, dateStr: string) => {
+  const handleOpenEditModal = (sched: any, shop: any, dateStr: string, displayDate: string) => {
     setSelectedSchedule({ 
       ...sched, 
       shopName: shop.name, 
       shopCode: shop.shop_code, 
       shopId: shop.id, 
       outroVideoUrl: shop.outro_video_url, 
-      dateStr 
+      dateStr,
+      displayDate
     });
     setSelectedVideoId(sched.video_id);
     setSelectedTemplateId(sched.template_id);
@@ -483,7 +484,7 @@ export default function SchedulerConfigPage() {
                           {sched ? (
                             <button
                               type="button"
-                              onClick={() => handleOpenEditModal(sched, shop, day.displayDate)}
+                              onClick={() => handleOpenEditModal(sched, shop, day.dateStr, day.displayDate)}
                               className="w-full bg-amber-50/70 border border-amber-200 hover:border-accent hover:bg-amber-100/50 p-2 rounded-xl text-left space-y-1 shadow-2xs group transition-all"
                             >
                               <div className="flex items-center justify-between">
@@ -544,7 +545,7 @@ export default function SchedulerConfigPage() {
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="font-bold text-base text-primary">Modify Video Schedule</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">{selectedSchedule.shopName} — {selectedSchedule.dateStr}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{selectedSchedule.shopName} — {selectedSchedule.displayDate || selectedSchedule.dateStr}</p>
               </div>
               <button 
                 type="button" 
@@ -572,14 +573,26 @@ export default function SchedulerConfigPage() {
                   const currentShopObj = (matrixData.shops || []).find((sh: any) => sh.id === selectedSchedule.shopId);
                   const currentDistrictId = currentShopObj?.district_id;
 
-                  const targetDate = new Date(selectedSchedule.dateStr);
+                  const parts = selectedSchedule.dateStr.split("-").map(Number);
+                  const targetDate = new Date(parts[0], parts[1] - 1, parts[2]);
                   const targetDay = targetDate.getDay();
-                  const diffToMonday = targetDate.getDate() - targetDay + (targetDay === 0 ? -6 : 1);
-                  const monday = new Date(new Date(selectedSchedule.dateStr).setDate(diffToMonday));
-                  const sunday = new Date(new Date(monday).getTime() + 6 * 24 * 60 * 60 * 1000);
+                  const diffToMonday = targetDay === 0 ? -6 : 1 - targetDay;
                   
-                  const mondayStr = monday.toISOString().split("T")[0];
-                  const sundayStr = sunday.toISOString().split("T")[0];
+                  const monday = new Date(targetDate);
+                  monday.setDate(targetDate.getDate() + diffToMonday);
+                  
+                  const sunday = new Date(monday);
+                  sunday.setDate(monday.getDate() + 6);
+                  
+                  const formatYMD = (d: Date) => {
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, "0");
+                    const dayStr = String(d.getDate()).padStart(2, "0");
+                    return `${y}-${m}-${dayStr}`;
+                  };
+
+                  const mondayStr = formatYMD(monday);
+                  const sundayStr = formatYMD(sunday);
 
                   const otherShopsUsing = (matrixData.schedules || [])
                     .filter((s: any) => {
