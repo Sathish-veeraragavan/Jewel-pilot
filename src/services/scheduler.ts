@@ -439,6 +439,75 @@ export async function generateAutoSchedules(
     }
   }
 
+  // ── Smart Category Conflict Resolver (Swap-based Optimization) ──────────
+  const getCategory = (vidId: string) => activeVideos.find(v => v.id === vidId)?.category || "";
+
+  activeShops.forEach(shop => {
+    // Get all new schedules for this shop in this batch
+    const shopSchedules = newScheduleRecords
+      .filter(r => r.shop_id === shop.id)
+      .sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date));
+
+    if (shopSchedules.length < 2) return; // Need at least 2 days in the batch to swap
+
+    // Retrieve history categories (Day -2 and Day -1)
+    const recents = shopRecentCategoriesMap.get(shop.id) || [];
+    const history1 = recents[1] || null; // Day -2
+    const history2 = recents[0] || null; // Day -1
+
+    const batchCats = shopSchedules.map(s => getCategory(s.video_id));
+    const catSequence = [history1, history2, ...batchCats];
+
+    const hasConflict = (seq: (string | null)[], idx: number) => {
+      if (idx < 2) return false;
+      const cat = seq[idx];
+      if (!cat) return false;
+      return cat === seq[idx - 1] || cat === seq[idx - 2];
+    };
+
+    const countConflicts = (seq: (string | null)[]) => {
+      let count = 0;
+      for (let i = 2; i < seq.length; i++) {
+        if (hasConflict(seq, i)) count++;
+      }
+      return count;
+    };
+
+    let currentConflicts = countConflicts(catSequence);
+    if (currentConflicts === 0) return;
+
+    // Swap optimization loop
+    let improved = true;
+    while (improved) {
+      improved = false;
+      for (let i = 2; i < catSequence.length; i++) {
+        for (let j = i + 1; j < catSequence.length; j++) {
+          const tempSeq = [...catSequence];
+          const temp = tempSeq[i];
+          tempSeq[i] = tempSeq[j];
+          tempSeq[j] = temp;
+
+          const newConflicts = countConflicts(tempSeq);
+          if (newConflicts < currentConflicts) {
+            // Apply swap in catSequence
+            catSequence[i] = tempSeq[i];
+            catSequence[j] = tempSeq[j];
+
+            // Apply swap in actual schedule records
+            const tempVid = shopSchedules[i - 2].video_id;
+            shopSchedules[i - 2].video_id = shopSchedules[j - 2].video_id;
+            shopSchedules[j - 2].video_id = tempVid;
+
+            currentConflicts = newConflicts;
+            improved = true;
+            break;
+          }
+        }
+        if (improved) break;
+      }
+    }
+  });
+
   // Save or update records in schedules table (preventing duplicate key / restrict violations)
   if (newScheduleRecords.length > 0) {
     const targetDates = Array.from(new Set(newScheduleRecords.map(r => r.scheduled_date)));
